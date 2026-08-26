@@ -137,27 +137,48 @@ function responseText(response,guess){
 function removeFromMatchmaking(ws){
     matchmakingQueue.delete(ws);
 }
+function sendGameReset(room,player,message){
+    if(!player){
+        return;
+    }
+    send(player.ws,{
+        type:'gameReset',
+        message:message,
+        timeout:MESSAGE_TIMEOUT_MS,
+        roomCode:room.code,
+        yourRole:'host',
+        range:room.range,
+        phase:room.phase,
+        host:{
+            name:room.host.name,
+            ready:room.host.ready
+        },
+        guest:null
+    });
+}
 function resetGameRoom(room,leavingWs){
     clearStartTimer(room);
     clearRoundEndTimer(room);
-    const wasHost=leavingWs===room.host?.ws;
-    const wasGuest=leavingWs===room.guest?.ws;
+    const wasHost=room.host&&room.host.ws===leavingWs;
+    const wasGuest=room.guest&&room.guest.ws===leavingWs;
     if(!wasHost&&!wasGuest){
         return;
     }
     const otherPlayer=wasHost?room.guest:room.host;
-    if(otherPlayer){
-        room.host={
-            ws:otherPlayer.ws,
-            name:otherPlayer.name,
-            ready:false
-        };
-        room.host.ws.role='host';
-        room.host.ws.roomCode=room.code;
-    }else{
-        room.host=null;
+    if(!otherPlayer){
+        rooms.delete(room.code);
+        leavingWs.roomCode=null;
+        leavingWs.role=null;
+        return;
     }
+    room.host={
+        ws:otherPlayer.ws,
+        name:otherPlayer.name,
+        ready:false
+    };
     room.guest=null;
+    otherPlayer.ws.roomCode=room.code;
+    otherPlayer.ws.role='host';
     room.phase=room.range===null?'range':'waiting';
     room.round=0;
     room.attackerRole=null;
@@ -174,16 +195,11 @@ function resetGameRoom(room,leavingWs){
     };
     leavingWs.roomCode=null;
     leavingWs.role=null;
-    if(otherPlayer){
-        send(otherPlayer.ws,{
-            type:'playerLeft',
-            message:'對方已退出，現在由你擔任房主',
-            timeout:MESSAGE_TIMEOUT_MS
-        });
-        broadcastRoom(room);
-    }else{
-        rooms.delete(room.code);
-    }
+    sendGameReset(
+        room,
+        otherPlayer,
+        '對方已退出，現在由你擔任房主'
+    );
     console.log(`Game reset after player left: ${room.code}`);
 }
 function transferConnection(oldWs,newWs){
@@ -191,25 +207,18 @@ function transferConnection(oldWs,newWs){
     if(oldWs.roomCode){
         const room=rooms.get(oldWs.roomCode);
         if(room){
-            if(room.host?.ws===oldWs){
+            if(room.host&&room.host.ws===oldWs){
                 room.host.ws=newWs;
             }
-            if(room.guest?.ws===oldWs){
+            if(room.guest&&room.guest.ws===oldWs){
                 room.guest.ws=newWs;
             }
             newWs.roomCode=oldWs.roomCode;
             newWs.role=oldWs.role;
-            if(oldWs.role==='host'&&room.host){
-                room.host.ws=newWs;
-            }
-            if(oldWs.role==='guest'&&room.guest){
-                room.guest.ws=newWs;
-            }
             if(room.phase==='range'||
                room.phase==='waiting'||
                room.phase==='starting'){
                 sendRoomState(room,newWs);
-                broadcastRoom(room);
             }else if(room.phase==='game'||
                     room.phase==='answer'||
                     room.phase==='guess'||
@@ -511,11 +520,6 @@ function removePlayerFromRoom(ws,sendBack=false){
         room.phase='waiting';
         send(newHost.ws,{
             type:'playerLeft',
-            message:'對方已退出，你現在是房主',
-            timeout:MESSAGE_TIMEOUT_MS
-        });
-        send(newHost.ws,{
-            type:'becameHost',
             message:'對方已退出，你現在是房主',
             timeout:MESSAGE_TIMEOUT_MS
         });

@@ -181,9 +181,7 @@ function createMatchmakingRoom(player1,player2){
     host.role='host';
     guest.roomCode=code;
     guest.role='guest';
-    console.log(
-        `Random match: ${host.playerName} (host) vs ${guest.playerName} (guest), room ${code}`
-    );
+    console.log(`Random match: ${host.playerName} (host) vs ${guest.playerName} (guest), room ${code}`);
     send(host,{
         type:'matchFound',
         message:'已找到對手'
@@ -319,14 +317,11 @@ function sendFinalResult(room,roundEndData){
     const guestSteps=room.roundSteps.guest;
     let resultText;
     if(hostSteps<guestSteps){
-        resultText=
-            `${room.host.name} 以 ${hostSteps} 步擊敗 ${room.guest.name} 的 ${guestSteps} 步`;
+        resultText=`${room.host.name} 以 ${hostSteps} 步擊敗 ${room.guest.name} 的 ${guestSteps} 步`;
     }else if(hostSteps>guestSteps){
-        resultText=
-            `${room.guest.name} 以 ${guestSteps} 步擊敗 ${room.host.name} 的 ${hostSteps} 步`;
+        resultText=`${room.guest.name} 以 ${guestSteps} 步擊敗 ${room.host.name} 的 ${hostSteps} 步`;
     }else{
-        resultText=
-            `${room.host.name} 的 ${hostSteps} 步與 ${room.guest.name} 的 ${guestSteps} 步打成平手`;
+        resultText=`${room.host.name} 的 ${hostSteps} 步與 ${room.guest.name} 的 ${guestSteps} 步打成平手`;
     }
     const data={
         type:'finalResult',
@@ -817,6 +812,7 @@ wss.on('connection',(ws)=>{
         tryMatchmaking();
     });
 });
-server.listen(3000,()=>{
-    console.log('Server running at http://localhost:3000');
+const PORT=process.env.PORT||3000;
+server.listen(PORT,'0.0.0.0',()=>{
+    console.log(`Server running on port ${PORT}`);
 });

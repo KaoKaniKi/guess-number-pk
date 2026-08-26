@@ -57,7 +57,10 @@ function getPlayer(room,role){
     return null;
 }
 function sendRoomState(room,ws){
-    if(ws===room.host?.ws){
+    if(!room.host){
+        return;
+    }
+    if(ws===room.host.ws){
         send(ws,{
             type:'roomUpdate',
             yourRole:'host',
@@ -134,6 +137,95 @@ function responseText(response,guess){
 function removeFromMatchmaking(ws){
     matchmakingQueue.delete(ws);
 }
+function resetGameRoom(room,leavingWs){
+    clearStartTimer(room);
+    clearRoundEndTimer(room);
+    const wasHost=leavingWs===room.host?.ws;
+    const wasGuest=leavingWs===room.guest?.ws;
+    if(!wasHost&&!wasGuest){
+        return;
+    }
+    const otherPlayer=wasHost?room.guest:room.host;
+    if(otherPlayer){
+        room.host={
+            ws:otherPlayer.ws,
+            name:otherPlayer.name,
+            ready:false
+        };
+        room.host.ws.role='host';
+        room.host.ws.roomCode=room.code;
+    }else{
+        room.host=null;
+    }
+    room.guest=null;
+    room.phase=room.range===null?'range':'waiting';
+    room.round=0;
+    room.attackerRole=null;
+    room.defenderRole=null;
+    room.answer=null;
+    room.step=0;
+    room.lieUsed=false;
+    room.currentGuess=null;
+    room.lastResponse=null;
+    room.roundHistory=[];
+    room.roundSteps={
+        host:null,
+        guest:null
+    };
+    leavingWs.roomCode=null;
+    leavingWs.role=null;
+    if(otherPlayer){
+        send(otherPlayer.ws,{
+            type:'playerLeft',
+            message:'對方已退出，現在由你擔任房主',
+            timeout:MESSAGE_TIMEOUT_MS
+        });
+        broadcastRoom(room);
+    }else{
+        rooms.delete(room.code);
+    }
+    console.log(`Game reset after player left: ${room.code}`);
+}
+function transferConnection(oldWs,newWs){
+    removeFromMatchmaking(oldWs);
+    if(oldWs.roomCode){
+        const room=rooms.get(oldWs.roomCode);
+        if(room){
+            if(room.host?.ws===oldWs){
+                room.host.ws=newWs;
+            }
+            if(room.guest?.ws===oldWs){
+                room.guest.ws=newWs;
+            }
+            newWs.roomCode=oldWs.roomCode;
+            newWs.role=oldWs.role;
+            if(oldWs.role==='host'&&room.host){
+                room.host.ws=newWs;
+            }
+            if(oldWs.role==='guest'&&room.guest){
+                room.guest.ws=newWs;
+            }
+            if(room.phase==='range'||
+               room.phase==='waiting'||
+               room.phase==='starting'){
+                sendRoomState(room,newWs);
+                broadcastRoom(room);
+            }else if(room.phase==='game'||
+                    room.phase==='answer'||
+                    room.phase==='guess'||
+                    room.phase==='lieChoice'){
+                sendGameState(room,newWs);
+            }
+        }
+    }
+    oldWs.ignoreClose=true;
+    oldWs.roomCode=null;
+    oldWs.role=null;
+    try{
+        oldWs.close();
+    }catch(e){
+    }
+}
 function createMatchmakingRoom(player1,player2){
     removeFromMatchmaking(player1);
     removeFromMatchmaking(player2);
@@ -171,6 +263,7 @@ function createMatchmakingRoom(player1,player2){
         lieUsed:false,
         currentGuess:null,
         lastResponse:null,
+        roundHistory:[],
         roundSteps:{
             host:null,
             guest:null
@@ -224,6 +317,7 @@ function startRound(room,round){
     room.lieUsed=false;
     room.currentGuess=null;
     room.lastResponse=null;
+    room.roundHistory=[];
     room.phase='answer';
     broadcastGameState(room);
 }
@@ -231,9 +325,15 @@ function startGame(room){
     startRound(room,1);
 }
 function sendGameState(room,ws){
+    if(!room.host||!room.guest){
+        return;
+    }
     const role=ws===room.host.ws?'host':'guest';
     const attacker=getPlayer(room,room.attackerRole);
     const defender=getPlayer(room,room.defenderRole);
+    if(!attacker||!defender){
+        return;
+    }
     const data={
         type:'gameState',
         roomCode:room.code,
@@ -241,8 +341,9 @@ function sendGameState(room,ws){
         round:room.round,
         phase:room.phase,
         step:room.step,
-        currentGuess:room.currentGuess,
-        lastResponse:room.lastResponse,
+        currentGuess:role===room.defenderRole?room.currentGuess:null,
+        lastResponse:role===room.attackerRole?room.lastResponse:null,
+        roundHistory:room.roundHistory,
         yourRole:role,
         attacker:{
             name:attacker.name
@@ -279,6 +380,7 @@ function sendRoundEnd(room){
         attacker:attacker.name,
         steps:room.step,
         answer:room.answer,
+        roundHistory:room.roundHistory,
         timeout:MESSAGE_TIMEOUT_MS
     };
     if(room.round===1){
@@ -333,7 +435,8 @@ function sendFinalResult(room,roundEndData){
         round:roundEndData.round,
         attacker:roundEndData.attacker,
         roundSteps:roundEndData.steps,
-        answer:roundEndData.answer
+        answer:roundEndData.answer,
+        roundHistory:roundEndData.roundHistory
     };
     send(room.host.ws,data);
     send(room.guest.ws,data);
@@ -376,6 +479,15 @@ function removePlayerFromRoom(ws,sendBack=false){
         leaveFinishedRoom(room,ws,sendBack);
         return;
     }
+    if(room.phase==='starting'||
+       room.phase==='game'||
+       room.phase==='answer'||
+       room.phase==='guess'||
+       room.phase==='lieChoice'||
+       room.phase==='roundEnd'){
+        resetGameRoom(room,ws);
+        return;
+    }
     const wasHost=ws.role==='host';
     clearStartTimer(room);
     clearRoundEndTimer(room);
@@ -388,12 +500,6 @@ function removePlayerFromRoom(ws,sendBack=false){
     }
     if(wasHost){
         const newHost=room.guest;
-        const gameStarted=
-            room.phase==='game'||
-            room.phase==='answer'||
-            room.phase==='guess'||
-            room.phase==='lieChoice'||
-            room.phase==='roundEnd';
         room.host={
             ws:newHost.ws,
             name:newHost.name,
@@ -405,16 +511,14 @@ function removePlayerFromRoom(ws,sendBack=false){
         room.phase='waiting';
         send(newHost.ws,{
             type:'playerLeft',
-            message:'對方已退出',
+            message:'對方已退出，你現在是房主',
             timeout:MESSAGE_TIMEOUT_MS
         });
-        if(!gameStarted){
-            send(newHost.ws,{
-                type:'becameHost',
-                message:'對方已退出，你現在是房主',
-                timeout:MESSAGE_TIMEOUT_MS
-            });
-        }
+        send(newHost.ws,{
+            type:'becameHost',
+            message:'對方已退出，你現在是房主',
+            timeout:MESSAGE_TIMEOUT_MS
+        });
         broadcastRoom(room);
         console.log(`${newHost.name} became host of room ${room.code}`);
     }else{
@@ -435,8 +539,14 @@ function removePlayerFromRoom(ws,sendBack=false){
 wss.on('connection',(ws)=>{
     ws.playerId=nextPlayerId++;
     ws.playerName=null;
+    ws.sessionId=null;
     ws.roomCode=null;
     ws.role=null;
+    ws.isAlive=true;
+    ws.ignoreClose=false;
+    ws.on('pong',()=>{
+        ws.isAlive=true;
+    });
     console.log(`Player connected: ${ws.playerId}`);
     send(ws,{
         type:'connected'
@@ -456,6 +566,7 @@ wss.on('connection',(ws)=>{
                 return;
             }
             const name=String(data.name||'').trim();
+            const sessionId=String(data.sessionId||'');
             if(name===''){
                 showMessage(ws,'名稱不能是空白');
                 return;
@@ -464,17 +575,32 @@ wss.on('connection',(ws)=>{
                 showMessage(ws,'名稱不能超過20個字');
                 return;
             }
-            const nameKey=normalizeName(name);
-            if(activeNames.has(nameKey)){
-                send(ws,{
-                    type:'nameTaken',
-                    message:'名字有人用了',
-                    timeout:MESSAGE_TIMEOUT_MS
-                });
+            if(sessionId===''){
+                showMessage(ws,'玩家識別失敗，請重新整理頁面');
                 return;
             }
+            ws.sessionId=sessionId;
+            const nameKey=normalizeName(name);
+            const existing=activeNames.get(nameKey);
+            if(existing){
+                if(existing.sessionId!==sessionId){
+                    send(ws,{
+                        type:'nameTaken',
+                        message:'名字有人用了',
+                        timeout:MESSAGE_TIMEOUT_MS
+                    });
+                    return;
+                }
+                if(existing.ws!==ws){
+                    transferConnection(existing.ws,ws);
+                }
+                activeNames.delete(nameKey);
+            }
             ws.playerName=name;
-            activeNames.set(nameKey,ws);
+            activeNames.set(nameKey,{
+                ws:ws,
+                sessionId:sessionId
+            });
             console.log(`Player ${ws.playerId} name: ${name}`);
             send(ws,{
                 type:'nameSet',
@@ -538,6 +664,7 @@ wss.on('connection',(ws)=>{
                 lieUsed:false,
                 currentGuess:null,
                 lastResponse:null,
+                roundHistory:[],
                 roundSteps:{
                     host:null,
                     guest:null
@@ -700,10 +827,7 @@ wss.on('connection',(ws)=>{
                 return;
             }
             console.log(`${ws.playerName} left room ${ws.roomCode}`);
-            removePlayerFromRoom(ws);
-            send(ws,{
-                type:'backToMenu'
-            });
+            removePlayerFromRoom(ws,true);
             return;
         }
         if(data.type==='setAnswer'){
@@ -749,13 +873,17 @@ wss.on('connection',(ws)=>{
                 showMessage(ws,'猜測必須是整數');
                 return;
             }
-            if(guess<0||guess>room.range){
-                showMessage(ws,'猜測必須在範圍內');
+            if(guess<=0||guess>=room.range){
+                showMessage(ws,'猜測不能是邊界數字');
                 return;
             }
             room.currentGuess=guess;
             room.lastResponse=null;
             if(guess===room.answer){
+                room.roundHistory.push({
+                    guess:guess,
+                    response:'猜中了'
+                });
                 room.phase='roundEnd';
                 sendRoundEnd(room);
                 return;
@@ -792,6 +920,10 @@ wss.on('connection',(ws)=>{
                 text:responseText(response,room.currentGuess),
                 response:response
             };
+            room.roundHistory.push({
+                guess:room.currentGuess,
+                response:room.lastResponse.text
+            });
             room.step++;
             room.currentGuess=null;
             room.phase='guess';
@@ -801,16 +933,33 @@ wss.on('connection',(ws)=>{
     });
     ws.on('close',()=>{
         console.log(`Player disconnected: ${ws.playerName||ws.playerId}`);
+        if(ws.ignoreClose){
+            return;
+        }
         removeFromMatchmaking(ws);
         if(ws.playerName){
             const nameKey=normalizeName(ws.playerName);
-            if(activeNames.get(nameKey)===ws){
+            const active=activeNames.get(nameKey);
+            if(active&&active.ws===ws){
                 activeNames.delete(nameKey);
             }
         }
         removePlayerFromRoom(ws,false);
         tryMatchmaking();
     });
+});
+const heartbeat=setInterval(()=>{
+    wss.clients.forEach(ws=>{
+        if(ws.isAlive===false){
+            ws.terminate();
+            return;
+        }
+        ws.isAlive=false;
+        ws.ping();
+    });
+},15000);
+wss.on('close',()=>{
+    clearInterval(heartbeat);
 });
 const PORT=process.env.PORT||3000;
 server.listen(PORT,'0.0.0.0',()=>{

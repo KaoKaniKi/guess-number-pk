@@ -517,18 +517,31 @@ function removePlayerFromRoom(ws,sendBack=false){
         room.guest=null;
         newHost.ws.role='host';
         newHost.ws.roomCode=room.code;
-        room.phase='waiting';
+        room.phase=room.range===null?'range':'waiting';
         send(newHost.ws,{
             type:'playerLeft',
             message:'對方已退出，你現在是房主',
             timeout:MESSAGE_TIMEOUT_MS
         });
+        if(room.range===null){
+            send(newHost.ws,{
+                type:'becameHost',
+                message:'對方已退出，你現在是房主，請選擇遊戲範圍',
+                timeout:MESSAGE_TIMEOUT_MS
+            });
+        }else{
+            send(newHost.ws,{
+                type:'becameHost',
+                message:'對方已退出，你現在是房主',
+                timeout:MESSAGE_TIMEOUT_MS
+            });
+        }
         broadcastRoom(room);
         console.log(`${newHost.name} became host of room ${room.code}`);
     }else{
         room.guest=null;
         room.host.ready=false;
-        room.phase='waiting';
+        room.phase=room.range===null?'range':'waiting';
         send(room.host.ws,{
             type:'playerLeft',
             message:'對方已退出',
@@ -961,7 +974,7 @@ const heartbeat=setInterval(()=>{
         ws.isAlive=false;
         ws.ping();
     });
-},15000);
+},MESSAGE_TIMEOUT_MS);
 wss.on('close',()=>{
     clearInterval(heartbeat);
 });

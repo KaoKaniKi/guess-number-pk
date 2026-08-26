@@ -103,6 +103,20 @@
             margin:20px auto;
             font-size:20px;
         }
+        #historyArea{
+            margin:25px auto;
+            max-width:500px;
+            border:1px solid #aaa;
+            padding:12px;
+            box-sizing:border-box;
+        }
+        #historyList p{
+            margin:8px 0;
+        }
+        .endHistory{
+            margin:20px auto;
+            max-width:600px;
+        }
     </style>
 </head>
 <body>
@@ -178,6 +192,10 @@
             <p>目前第 <strong id="stepNumber"></strong> 步</p>
             <p id="gameStatus"></p>
         </div>
+        <div id="historyArea" class="gameBox">
+            <h3>本回合紀錄</h3>
+            <div id="historyList">尚無紀錄</div>
+        </div>
         <div id="answerArea" class="gameBox" style="display:none;">
             <h3>決定答案</h3>
             <div id="answerDisplay" class="numberInput">尚未輸入</div>
@@ -232,17 +250,30 @@
     <div id="roundEndScreen" class="screen">
         <h2 id="roundEndTitle">第 1 回合結束</h2>
         <p id="roundEndText"></p>
+        <div class="endHistory">
+            <h3>本回合紀錄</h3>
+            <div id="roundEndHistory"></div>
+        </div>
         <p>等待進入第二回合</p>
     </div>
     <div id="finalResultScreen" class="screen">
         <h2>對局結束</h2>
         <p id="finalRoundEndText"></p>
+        <div class="endHistory">
+            <h3>第 2 回合紀錄</h3>
+            <div id="finalHistory"></div>
+        </div>
         <p id="finalResultText"></p>
         <button id="leaveAfterGameButton">離開房間</button>
     </div>
     <script>
         const MESSAGE_TIMEOUT_MS=6000;
         const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
+        const sessionId=localStorage.getItem('guessNumberPkSessionId')||(()=>{
+            const id=crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`;
+            localStorage.setItem('guessNumberPkSessionId',id);
+            return id;
+        })();
         let myName='';
         let myRole=null;
         let messageTimer=null;
@@ -351,6 +382,32 @@
             document.getElementById('guessDisplay').textContent=
                 guessInput===''?'尚未輸入':guessInput;
         }
+        function updateHistory(history){
+            const list=document.getElementById('historyList');
+            list.textContent='';
+            if(!history||history.length===0){
+                list.textContent='尚無紀錄';
+                return;
+            }
+            history.forEach((item,index)=>{
+                const p=document.createElement('p');
+                p.textContent=`第 ${index+1} 次：猜 ${item.guess} → ${item.response}`;
+                list.appendChild(p);
+            });
+        }
+        function updateEndHistory(elementId,history){
+            const list=document.getElementById(elementId);
+            list.textContent='';
+            if(!history||history.length===0){
+                list.textContent='尚無紀錄';
+                return;
+            }
+            history.forEach((item,index)=>{
+                const p=document.createElement('p');
+                p.textContent=`第 ${index+1} 次：猜 ${item.guess} → ${item.response}`;
+                list.appendChild(p);
+            });
+        }
         function addAnswerNumber(number){
             answerInput+=number;
             updateNumberDisplays();
@@ -384,6 +441,7 @@
         function updateGameState(data){
             showScreen('game');
             hideGameAreas();
+            updateHistory(data.roundHistory);
             document.getElementById('roundNumber').textContent=data.round;
             document.getElementById('gameRange').textContent=`0 ~ ${data.range}`;
             document.getElementById('stepNumber').textContent=data.step;
@@ -405,16 +463,18 @@
             }
             if(data.phase==='guess'){
                 clearGuessInput();
-                if(data.lastResponse){
-                    document.getElementById('gameStatus').textContent=
-                        `對方回答：${data.lastResponse.text}`;
-                }else{
-                    document.getElementById('gameStatus').textContent='';
-                }
                 if(data.attackerIsYou){
+                    if(data.lastResponse){
+                        document.getElementById('gameStatus').textContent=
+                            `對方回答：${data.lastResponse.text}`;
+                    }else{
+                        document.getElementById('gameStatus').textContent='';
+                    }
                     document.getElementById('guessArea').style.display=
                         'block';
                 }else{
+                    document.getElementById('gameStatus').textContent=
+                        '等待對方猜測……';
                     document.getElementById('waitingArea').style.display=
                         'block';
                 }
@@ -436,7 +496,7 @@
                         'block';
                 }else{
                     document.getElementById('gameStatus').textContent=
-                        `對方猜了 ${data.currentGuess}`;
+                        '等待對方回答……';
                     document.getElementById('waitingArea').style.display=
                         'block';
                 }
@@ -492,12 +552,14 @@
                     `第 ${data.round} 回合結束`;
                 document.getElementById('roundEndText').textContent=
                     `${data.attacker} 在第 ${data.steps} 步猜中了答案 ${data.answer}。`;
+                updateEndHistory('roundEndHistory',data.roundHistory);
                 showScreen('roundEnd');
                 return;
             }
             if(data.type==='finalResult'){
                 document.getElementById('finalRoundEndText').textContent=
                     `${data.attacker} 在第 ${data.roundSteps} 步猜中了第2回合的答案 ${data.answer}。`;
+                updateEndHistory('finalHistory',data.roundHistory);
                 document.getElementById('finalResultText').textContent=
                     data.resultText;
                 showScreen('finalResult');
@@ -520,8 +582,15 @@
             }
             if(data.type==='backToMenu'){
                 myRole=null;
-                showMessage('');
                 showScreen('menu');
+                if(data.message){
+                    showMessage(
+                        data.message,
+                        data.timeout||MESSAGE_TIMEOUT_MS
+                    );
+                }else{
+                    showMessage('');
+                }
                 return;
             }
             if(data.type==='error'){
@@ -539,7 +608,8 @@
             }
             send({
                 type:'setName',
-                name:name
+                name:name,
+                sessionId:sessionId
             });
         };
         document.getElementById('createRoomButton').onclick=()=>{

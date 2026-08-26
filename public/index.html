@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>終極密碼說謊版對戰</title>
+    <style>
+        body{
+            margin:0;
+            padding:30px 20px;
+            font-family:Arial,sans-serif;
+            text-align:center;
+        }
+        .screen{
+            display:none;
+        }
+        .screen.active{
+            display:block;
+        }
+        input,button{
+            font-size:18px;
+            padding:8px 12px;
+            margin:5px;
+        }
+        #roomInfo{
+            margin:20px auto;
+            max-width:500px;
+        }
+        .playerBox{
+            border:1px solid #aaa;
+            padding:15px;
+            margin:10px auto;
+            max-width:400px;
+        }
+        #message{
+            margin:20px;
+            min-height:25px;
+        }
+        .rangeButton{
+            display:block;
+            margin:10px auto;
+            width:180px;
+        }
+        .gameBox{
+            margin:15px auto;
+            max-width:500px;
+        }
+        .choiceButton{
+            display:block;
+            width:320px;
+            margin:12px auto;
+        }
+        #finalResultText{
+            font-size:22px;
+            margin:30px auto;
+            max-width:600px;
+        }
+        #finalRoundEndText{
+            margin:25px auto;
+            max-width:600px;
+        }
+        .numberInput{
+            width:260px;
+            margin:15px auto;
+            padding:12px;
+            border:1px solid #aaa;
+            font-size:24px;
+            box-sizing:border-box;
+            min-height:30px;
+        }
+        .numberPad{
+            width:300px;
+            margin:10px auto;
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            gap:8px;
+        }
+        .numberPad button{
+            margin:0;
+            padding:14px 5px;
+            font-size:22px;
+            min-height:55px;
+        }
+        .numberPad .wideButton{
+            grid-column:span 3;
+        }
+        .numberPadActions{
+            width:300px;
+            margin:8px auto;
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:8px;
+        }
+        .numberPadActions button{
+            margin:0;
+            padding:12px 5px;
+        }
+        #matchmakingText{
+            font-size:22px;
+            margin:40px auto 25px;
+        }
+        #rangeWaitingText{
+            margin:20px auto;
+            font-size:20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>終極密碼說謊版對戰</h1>
+    <div id="message"></div>
+    <div id="nameScreen" class="screen active">
+        <h2>輸入玩家名稱</h2>
+        <input
+            id="nameInput"
+            type="text"
+            maxlength="20"
+            placeholder="請輸入玩家名稱"
+        >
+        <br>
+        <button id="nameButton">確認</button>
+    </div>
+    <div id="menuScreen" class="screen">
+        <h2>選擇</h2>
+        <button id="createRoomButton">創建房間</button>
+        <button id="joinRoomButton">加入房間</button>
+        <button id="matchmakingButton">隨機配對</button>
+    </div>
+    <div id="joinScreen" class="screen">
+        <h2>加入房間</h2>
+        <input
+            id="roomCodeInput"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="輸入房間碼"
+        >
+        <br>
+        <button id="joinButton">加入</button>
+        <button id="backFromJoinButton">返回</button>
+    </div>
+    <div id="matchmakingScreen" class="screen">
+        <h2>隨機配對</h2>
+        <p id="matchmakingText">正在隨機尋找對手</p>
+        <button id="cancelMatchmakingButton">退出</button>
+    </div>
+    <div id="rangeScreen" class="screen">
+        <h2>選擇範圍</h2>
+        <p>你是房主，請選擇遊戲範圍。</p>
+        <button class="rangeButton" data-range="50">0 ~ 50</button>
+        <button class="rangeButton" data-range="100">0 ~ 100</button>
+        <button class="rangeButton" data-range="200">0 ~ 200</button>
+    </div>
+    <div id="roomScreen" class="screen">
+        <div id="roomInfo">
+            <p id="rangeWaitingText" style="display:none;">對方正在選擇遊戲範圍</p>
+            <p>房間碼：<strong id="roomCode"></strong></p>
+            <p>範圍：<strong id="rangeText">尚未選擇</strong></p>
+            <div class="playerBox">
+                <h3>房主</h3>
+                <p id="hostName">-</p>
+                <p>狀態：<strong id="hostReady">未準備</strong></p>
+            </div>
+            <div class="playerBox">
+                <h3>加入者</h3>
+                <p id="guestName">等待玩家加入</p>
+                <p>狀態：<strong id="guestReady">未準備</strong></p>
+            </div>
+        </div>
+        <button id="readyButton" style="display:none;">準備開始</button>
+        <button id="cancelReadyButton" style="display:none;">取消準備</button>
+        <button id="leaveRoomButton">退出房間</button>
+    </div>
+    <div id="gameScreen" class="screen">
+        <h2>遊戲</h2>
+        <div class="gameBox">
+            <p>第 <strong id="roundNumber"></strong> 回合</p>
+            <p>範圍：<strong id="gameRange"></strong></p>
+            <p>目前第 <strong id="stepNumber"></strong> 步</p>
+            <p id="gameStatus"></p>
+        </div>
+        <div id="answerArea" class="gameBox" style="display:none;">
+            <h3>決定答案</h3>
+            <div id="answerDisplay" class="numberInput">尚未輸入</div>
+            <div id="answerPad" class="numberPad">
+                <button data-number="1">1</button>
+                <button data-number="2">2</button>
+                <button data-number="3">3</button>
+                <button data-number="4">4</button>
+                <button data-number="5">5</button>
+                <button data-number="6">6</button>
+                <button data-number="7">7</button>
+                <button data-number="8">8</button>
+                <button data-number="9">9</button>
+                <button data-number="0" class="wideButton">0</button>
+            </div>
+            <div class="numberPadActions">
+                <button id="answerClearButton">清除</button>
+                <button id="answerDeleteButton">刪除</button>
+            </div>
+            <button id="answerButton">確定答案</button>
+        </div>
+        <div id="guessArea" class="gameBox" style="display:none;">
+            <h3>猜數字</h3>
+            <div id="guessDisplay" class="numberInput">尚未輸入</div>
+            <div id="guessPad" class="numberPad">
+                <button data-number="1">1</button>
+                <button data-number="2">2</button>
+                <button data-number="3">3</button>
+                <button data-number="4">4</button>
+                <button data-number="5">5</button>
+                <button data-number="6">6</button>
+                <button data-number="7">7</button>
+                <button data-number="8">8</button>
+                <button data-number="9">9</button>
+                <button data-number="0" class="wideButton">0</button>
+            </div>
+            <div class="numberPadActions">
+                <button id="guessClearButton">清除</button>
+                <button id="guessDeleteButton">刪除</button>
+            </div>
+            <button id="guessButton">猜</button>
+        </div>
+        <div id="lieArea" class="gameBox" style="display:none;">
+            <h3>請選擇</h3>
+            <button id="truthButton" class="choiceButton"></button>
+            <button id="lieButton" class="choiceButton"></button>
+        </div>
+        <div id="waitingArea" class="gameBox" style="display:none;">
+            <p>等待對方操作……</p>
+        </div>
+    </div>
+    <div id="roundEndScreen" class="screen">
+        <h2 id="roundEndTitle">第 1 回合結束</h2>
+        <p id="roundEndText"></p>
+        <p>等待進入第二回合</p>
+    </div>
+    <div id="finalResultScreen" class="screen">
+        <h2>對局結束</h2>
+        <p id="finalRoundEndText"></p>
+        <p id="finalResultText"></p>
+        <button id="leaveAfterGameButton">離開房間</button>
+    </div>
+    <script>
+        const MESSAGE_TIMEOUT_MS=6000;
+        const ws=new WebSocket(`ws://${location.host}`);
+        let myName='';
+        let myRole=null;
+        let messageTimer=null;
+        let answerInput='';
+        let guessInput='';
+        const screens={
+            name:document.getElementById('nameScreen'),
+            menu:document.getElementById('menuScreen'),
+            join:document.getElementById('joinScreen'),
+            matchmaking:document.getElementById('matchmakingScreen'),
+            range:document.getElementById('rangeScreen'),
+            room:document.getElementById('roomScreen'),
+            game:document.getElementById('gameScreen'),
+            roundEnd:document.getElementById('roundEndScreen'),
+            finalResult:document.getElementById('finalResultScreen')
+        };
+        const message=document.getElementById('message');
+        function showScreen(screen){
+            Object.values(screens).forEach(element=>{
+                element.classList.remove('active');
+            });
+            screens[screen].classList.add('active');
+        }
+        function showMessage(text,timeout=MESSAGE_TIMEOUT_MS){
+            if(messageTimer){
+                clearTimeout(messageTimer);
+                messageTimer=null;
+            }
+            message.textContent=text;
+            if(text&&timeout>0){
+                messageTimer=setTimeout(()=>{
+                    message.textContent='';
+                    messageTimer=null;
+                },timeout);
+            }
+        }
+        function send(data){
+            if(ws.readyState===WebSocket.OPEN){
+                ws.send(JSON.stringify(data));
+            }
+        }
+        function readyText(ready){
+            return ready?'已準備':'未準備';
+        }
+        function updateReadyButton(data){
+            const readyButton=document.getElementById('readyButton');
+            const cancelReadyButton=document.getElementById('cancelReadyButton');
+            readyButton.style.display='none';
+            cancelReadyButton.style.display='none';
+            if(!data.guest){
+                return;
+            }
+            const player=data.yourRole==='host'?data.host:data.guest;
+            if(player.ready){
+                cancelReadyButton.style.display='inline-block';
+            }else{
+                readyButton.style.display='inline-block';
+            }
+        }
+        function updateRoom(data){
+            myRole=data.yourRole;
+            document.getElementById('roomCode').textContent=data.roomCode;
+            document.getElementById('rangeText').textContent=
+                data.range===null?'尚未選擇':`0 ~ ${data.range}`;
+            document.getElementById('hostName').textContent=data.host.name;
+            document.getElementById('hostReady').textContent=
+                readyText(data.host.ready);
+            if(data.guest){
+                document.getElementById('guestName').textContent=data.guest.name;
+                document.getElementById('guestReady').textContent=
+                    readyText(data.guest.ready);
+            }else{
+                document.getElementById('guestName').textContent='等待玩家加入';
+                document.getElementById('guestReady').textContent='未準備';
+            }
+            if(data.phase==='range'){
+                document.getElementById('readyButton').style.display='none';
+                document.getElementById('cancelReadyButton').style.display='none';
+                if(myRole==='host'){
+                    document.getElementById('rangeWaitingText').style.display='none';
+                    showMessage('');
+                    showScreen('range');
+                }else{
+                    document.getElementById('rangeWaitingText').style.display='block';
+                    showMessage('');
+                    showScreen('room');
+                }
+                return;
+            }
+            if(data.phase==='waiting'){
+                document.getElementById('rangeWaitingText').style.display='none';
+                updateReadyButton(data);
+                showScreen('room');
+                return;
+            }
+            if(data.phase==='starting'){
+                document.getElementById('rangeWaitingText').style.display='none';
+                document.getElementById('readyButton').style.display='none';
+                document.getElementById('cancelReadyButton').style.display='none';
+                showScreen('room');
+            }
+        }
+        function updateNumberDisplays(){
+            document.getElementById('answerDisplay').textContent=
+                answerInput===''?'尚未輸入':answerInput;
+            document.getElementById('guessDisplay').textContent=
+                guessInput===''?'尚未輸入':guessInput;
+        }
+        function addAnswerNumber(number){
+            answerInput+=number;
+            updateNumberDisplays();
+        }
+        function addGuessNumber(number){
+            guessInput+=number;
+            updateNumberDisplays();
+        }
+        function clearAnswerInput(){
+            answerInput='';
+            updateNumberDisplays();
+        }
+        function clearGuessInput(){
+            guessInput='';
+            updateNumberDisplays();
+        }
+        function deleteAnswerNumber(){
+            answerInput=answerInput.slice(0,-1);
+            updateNumberDisplays();
+        }
+        function deleteGuessNumber(){
+            guessInput=guessInput.slice(0,-1);
+            updateNumberDisplays();
+        }
+        function hideGameAreas(){
+            document.getElementById('answerArea').style.display='none';
+            document.getElementById('guessArea').style.display='none';
+            document.getElementById('lieArea').style.display='none';
+            document.getElementById('waitingArea').style.display='none';
+        }
+        function updateGameState(data){
+            showScreen('game');
+            hideGameAreas();
+            document.getElementById('roundNumber').textContent=data.round;
+            document.getElementById('gameRange').textContent=`0 ~ ${data.range}`;
+            document.getElementById('stepNumber').textContent=data.step;
+            if(data.phase==='answer'){
+                document.getElementById('gameStatus').textContent='';
+                clearAnswerInput();
+                if(data.defenderIsYou){
+                    document.getElementById('gameStatus').textContent=
+                        '請先決定答案。';
+                    document.getElementById('answerArea').style.display=
+                        'block';
+                }else{
+                    document.getElementById('gameStatus').textContent=
+                        '正在等待對方決定數字。';
+                    document.getElementById('waitingArea').style.display=
+                        'block';
+                }
+                return;
+            }
+            if(data.phase==='guess'){
+                clearGuessInput();
+                if(data.lastResponse){
+                    document.getElementById('gameStatus').textContent=
+                        `對方回答：${data.lastResponse.text}`;
+                }else{
+                    document.getElementById('gameStatus').textContent='';
+                }
+                if(data.attackerIsYou){
+                    document.getElementById('guessArea').style.display=
+                        'block';
+                }else{
+                    document.getElementById('waitingArea').style.display=
+                        'block';
+                }
+                return;
+            }
+            if(data.phase==='lieChoice'){
+                if(data.defenderIsYou){
+                    document.getElementById('gameStatus').textContent=
+                        `對方猜了 ${data.currentGuess}`;
+                    document.getElementById('truthButton').textContent=
+                        `這次不說謊　對方會看到：${data.truthText}`;
+                    document.getElementById('lieButton').textContent=
+                        `這次說謊　對方會看到：${data.lieText}`;
+                    document.getElementById('truthButton').style.display=
+                        'block';
+                    document.getElementById('lieButton').style.display=
+                        data.canLie?'block':'none';
+                    document.getElementById('lieArea').style.display=
+                        'block';
+                }else{
+                    document.getElementById('gameStatus').textContent=
+                        `對方猜了 ${data.currentGuess}`;
+                    document.getElementById('waitingArea').style.display=
+                        'block';
+                }
+            }
+        }
+        ws.onopen=()=>{
+        };
+        ws.onmessage=(event)=>{
+            const data=JSON.parse(event.data);
+            if(data.type==='connected'){
+                return;
+            }
+            if(data.type==='nameSet'){
+                myName=data.name;
+                showMessage('');
+                showScreen('menu');
+                return;
+            }
+            if(data.type==='nameTaken'){
+                showMessage(
+                    data.message,
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
+                return;
+            }
+            if(data.type==='message'){
+                showMessage(
+                    data.message,
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
+                return;
+            }
+            if(data.type==='matchmakingWaiting'){
+                showMessage('');
+                showScreen('matchmaking');
+                return;
+            }
+            if(data.type==='matchFound'){
+                showMessage(data.message||'已找到對手');
+                return;
+            }
+            if(data.type==='roomUpdate'){
+                updateRoom(data);
+                return;
+            }
+            if(data.type==='gameState'){
+                myRole=data.yourRole;
+                updateGameState(data);
+                return;
+            }
+            if(data.type==='roundEnd'){
+                document.getElementById('roundEndTitle').textContent=
+                    `第 ${data.round} 回合結束`;
+                document.getElementById('roundEndText').textContent=
+                    `${data.attacker} 在第 ${data.steps} 步猜中了答案 ${data.answer}。`;
+                showScreen('roundEnd');
+                return;
+            }
+            if(data.type==='finalResult'){
+                document.getElementById('finalRoundEndText').textContent=
+                    `${data.attacker} 在第 ${data.roundSteps} 步猜中了第2回合的答案 ${data.answer}。`;
+                document.getElementById('finalResultText').textContent=
+                    data.resultText;
+                showScreen('finalResult');
+                return;
+            }
+            if(data.type==='playerLeft'){
+                showMessage(
+                    data.message,
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
+                return;
+            }
+            if(data.type==='becameHost'){
+                myRole='host';
+                showMessage(
+                    data.message,
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
+                return;
+            }
+            if(data.type==='backToMenu'){
+                myRole=null;
+                showMessage('');
+                showScreen('menu');
+                return;
+            }
+            if(data.type==='error'){
+                showMessage(data.message);
+            }
+        };
+        ws.onclose=()=>{
+            showMessage('與伺服器的連線已中斷');
+        };
+        document.getElementById('nameButton').onclick=()=>{
+            const name=document.getElementById('nameInput').value.trim();
+            if(name===''){
+                showMessage('請輸入玩家名稱');
+                return;
+            }
+            send({
+                type:'setName',
+                name:name
+            });
+        };
+        document.getElementById('createRoomButton').onclick=()=>{
+            send({
+                type:'createRoom'
+            });
+        };
+        document.getElementById('joinRoomButton').onclick=()=>{
+            showMessage('');
+            showScreen('join');
+        };
+        document.getElementById('matchmakingButton').onclick=()=>{
+            send({
+                type:'findMatch'
+            });
+        };
+        document.getElementById('cancelMatchmakingButton').onclick=()=>{
+            send({
+                type:'cancelMatch'
+            });
+        };
+        document.getElementById('backFromJoinButton').onclick=()=>{
+            showMessage('');
+            showScreen('menu');
+        };
+        document.getElementById('joinButton').onclick=()=>{
+            const code=document.getElementById('roomCodeInput').value.trim();
+            if(!/^\d{6}$/.test(code)){
+                showMessage('請輸入6位數房間碼');
+                return;
+            }
+            send({
+                type:'joinRoom',
+                code:code
+            });
+        };
+        document.querySelectorAll('.rangeButton').forEach(button=>{
+            button.onclick=()=>{
+                send({
+                    type:'setRange',
+                    range:Number(button.dataset.range)
+                });
+            };
+        });
+        document.getElementById('readyButton').onclick=()=>{
+            send({
+                type:'ready'
+            });
+        };
+        document.getElementById('cancelReadyButton').onclick=()=>{
+            send({
+                type:'cancelReady'
+            });
+        };
+        document.getElementById('leaveRoomButton').onclick=()=>{
+            send({
+                type:'leaveRoom'
+            });
+        };
+        document.querySelectorAll('#answerPad button').forEach(button=>{
+            button.onclick=()=>{
+                addAnswerNumber(button.dataset.number);
+            };
+        });
+        document.querySelectorAll('#guessPad button').forEach(button=>{
+            button.onclick=()=>{
+                addGuessNumber(button.dataset.number);
+            };
+        });
+        document.getElementById('answerClearButton').onclick=()=>{
+            clearAnswerInput();
+        };
+        document.getElementById('answerDeleteButton').onclick=()=>{
+            deleteAnswerNumber();
+        };
+        document.getElementById('guessClearButton').onclick=()=>{
+            clearGuessInput();
+        };
+        document.getElementById('guessDeleteButton').onclick=()=>{
+            deleteGuessNumber();
+        };
+        document.getElementById('answerButton').onclick=()=>{
+            if(answerInput===''){
+                showMessage('請輸入答案');
+                return;
+            }
+            send({
+                type:'setAnswer',
+                answer:Number(answerInput)
+            });
+        };
+        document.getElementById('guessButton').onclick=()=>{
+            if(guessInput===''){
+                showMessage('請輸入猜測');
+                return;
+            }
+            send({
+                type:'guess',
+                guess:Number(guessInput)
+            });
+        };
+        document.getElementById('truthButton').onclick=()=>{
+            send({
+                type:'lieChoice',
+                choice:'truth'
+            });
+        };
+        document.getElementById('lieButton').onclick=()=>{
+            send({
+                type:'lieChoice',
+                choice:'lie'
+            });
+        };
+        document.getElementById('leaveAfterGameButton').onclick=()=>{
+            send({
+                type:'leaveRoom'
+            });
+        };
+        updateNumberDisplays();
+    </script>
+</body>
+</html>

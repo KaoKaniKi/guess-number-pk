@@ -542,6 +542,15 @@
                 updateRoom(data);
                 return;
             }
+            if(data.type==='gameReset'){
+                updateRoom(data);
+                showMessage(
+                    data.message||'對方已退出，遊戲已結束',
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
+                showScreen('room');
+                return;
+            }
             if(data.type==='gameState'){
                 myRole=data.yourRole;
                 updateGameState(data);

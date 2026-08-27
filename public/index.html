@@ -116,6 +116,15 @@
         .endHistory{
             margin:20px auto;
             max-width:600px;
+            border:1px solid #aaa;
+            padding:12px;
+            box-sizing:border-box;
+        }
+        .endHistory p{
+            margin:8px 0;
+        }
+        .liedResponse{
+            color:red;
         }
     </style>
 </head>
@@ -404,7 +413,11 @@
             }
             history.forEach((item,index)=>{
                 const p=document.createElement('p');
-                p.textContent=`第 ${index+1} 次：猜 ${item.guess} → ${item.response}`;
+                const text=`第 ${index+1} 次：猜 ${item.guess} → ${item.response}`;
+                p.textContent=text;
+                if(item.lied){
+                    p.classList.add('liedResponse');
+                }
                 list.appendChild(p);
             });
         }

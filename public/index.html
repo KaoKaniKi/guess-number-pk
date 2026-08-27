@@ -269,9 +269,9 @@
     <script>
         const MESSAGE_TIMEOUT_MS=6000;
         const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
-        const sessionId=localStorage.getItem('guessNumberPkSessionId')||(()=>{
+        const sessionId=sessionStorage.getItem('guessNumberPkSessionId')||(()=>{
             const id=crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`;
-            localStorage.setItem('guessNumberPkSessionId',id);
+            sessionStorage.setItem('guessNumberPkSessionId',id);
             return id;
         })();
         let myName='';

@@ -198,7 +198,9 @@ function resetGameRoom(room,leavingWs){
     sendGameReset(
         room,
         otherPlayer,
-        '對方已退出，現在由你擔任房主'
+        room.range===null
+            ?'對方已退出，現在由你擔任房主，請選擇遊戲範圍'
+            :'對方已退出，現在由你擔任房主'
     );
     console.log(`Game reset after player left: ${room.code}`);
 }
@@ -523,19 +525,6 @@ function removePlayerFromRoom(ws,sendBack=false){
             message:'對方已退出，你現在是房主',
             timeout:MESSAGE_TIMEOUT_MS
         });
-        if(room.range===null){
-            send(newHost.ws,{
-                type:'becameHost',
-                message:'對方已退出，你現在是房主，請選擇遊戲範圍',
-                timeout:MESSAGE_TIMEOUT_MS
-            });
-        }else{
-            send(newHost.ws,{
-                type:'becameHost',
-                message:'對方已退出，你現在是房主',
-                timeout:MESSAGE_TIMEOUT_MS
-            });
-        }
         broadcastRoom(room);
         console.log(`${newHost.name} became host of room ${room.code}`);
     }else{

@@ -888,7 +888,8 @@ wss.on('connection',(ws)=>{
             if(guess===room.answer){
                 room.roundHistory.push({
                     guess:guess,
-                    response:'猜中了'
+                    response:'猜中了',
+                    lied:false
                 });
                 room.phase='roundEnd';
                 sendRoundEnd(room);
@@ -919,16 +920,19 @@ wss.on('connection',(ws)=>{
                 data.choice==='truth'
                     ?truth
                     :(truth==='higher'?'lower':'higher');
-            if(data.choice==='lie'){
+            const lied=data.choice==='lie';
+            if(lied){
                 room.lieUsed=true;
             }
             room.lastResponse={
                 text:responseText(response,room.currentGuess),
-                response:response
+                response:response,
+                lied:lied
             };
             room.roundHistory.push({
                 guess:room.currentGuess,
-                response:room.lastResponse.text
+                response:room.lastResponse.text,
+                lied:lied
             });
             room.step++;
             room.currentGuess=null;

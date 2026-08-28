@@ -167,6 +167,9 @@ function resetGameRoom(room,leavingWs){
     const otherPlayer=wasHost?room.guest:room.host;
     if(!otherPlayer){
         rooms.delete(room.code);
+        send(leavingWs,{
+            type:'backToMenu'
+        });
         leavingWs.roomCode=null;
         leavingWs.role=null;
         return;
@@ -193,8 +196,6 @@ function resetGameRoom(room,leavingWs){
         host:null,
         guest:null
     };
-    leavingWs.roomCode=null;
-    leavingWs.role=null;
     sendGameReset(
         room,
         otherPlayer,
@@ -202,6 +203,11 @@ function resetGameRoom(room,leavingWs){
             ?'對方已退出，現在由你擔任房主，請選擇遊戲範圍'
             :'對方已退出，現在由你擔任房主'
     );
+    send(leavingWs,{
+        type:'backToMenu'
+    });
+    leavingWs.roomCode=null;
+    leavingWs.role=null;
     console.log(`Game reset after player left: ${room.code}`);
 }
 function transferConnection(oldWs,newWs){
@@ -504,6 +510,9 @@ function removePlayerFromRoom(ws,sendBack=false){
     clearRoundEndTimer(room);
     if(!room.guest){
         rooms.delete(room.code);
+        send(ws,{
+            type:'backToMenu'
+        });
         ws.roomCode=null;
         ws.role=null;
         console.log(`Room closed: ${room.code}`);
@@ -525,6 +534,9 @@ function removePlayerFromRoom(ws,sendBack=false){
             message:'對方已退出，你現在是房主',
             timeout:MESSAGE_TIMEOUT_MS
         });
+        send(ws,{
+            type:'backToMenu'
+        });
         broadcastRoom(room);
         console.log(`${newHost.name} became host of room ${room.code}`);
     }else{
@@ -535,6 +547,9 @@ function removePlayerFromRoom(ws,sendBack=false){
             type:'playerLeft',
             message:'對方已退出',
             timeout:MESSAGE_TIMEOUT_MS
+        });
+        send(ws,{
+            type:'backToMenu'
         });
         broadcastRoom(room);
         console.log(`Guest left room ${room.code}`);

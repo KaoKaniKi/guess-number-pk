@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -95,6 +96,33 @@
             margin:0;
             padding:12px 5px;
         }
+        #roomCodePad{
+            width:300px;
+            margin:10px auto;
+            display:grid;
+            grid-template-columns:repeat(3,1fr);
+            gap:8px;
+        }
+        #roomCodePad button{
+            margin:0;
+            padding:14px 5px;
+            font-size:22px;
+            min-height:55px;
+        }
+        #roomCodePad .wideButton{
+            grid-column:span 3;
+        }
+        #roomCodePadActions{
+            width:300px;
+            margin:8px auto;
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:8px;
+        }
+        #roomCodePadActions button{
+            margin:0;
+            padding:12px 5px;
+        }
         #matchmakingText{
             font-size:22px;
             margin:40px auto 25px;
@@ -153,10 +181,27 @@
         <input
             id="roomCodeInput"
             type="text"
-            inputmode="numeric"
+            inputmode="none"
             maxlength="6"
             placeholder="輸入房間碼"
+            readonly
         >
+        <div id="roomCodePad">
+            <button data-number="1">1</button>
+            <button data-number="2">2</button>
+            <button data-number="3">3</button>
+            <button data-number="4">4</button>
+            <button data-number="5">5</button>
+            <button data-number="6">6</button>
+            <button data-number="7">7</button>
+            <button data-number="8">8</button>
+            <button data-number="9">9</button>
+            <button data-number="0" class="wideButton">0</button>
+        </div>
+        <div id="roomCodePadActions">
+            <button id="roomCodeClearButton">清除</button>
+            <button id="roomCodeDeleteButton">刪除</button>
+        </div>
         <br>
         <button id="joinButton">加入</button>
         <button id="backFromJoinButton">返回</button>
@@ -288,6 +333,7 @@
         let messageTimer=null;
         let answerInput='';
         let guessInput='';
+        let roomCodeInput='';
         const screens={
             name:document.getElementById('nameScreen'),
             menu:document.getElementById('menuScreen'),
@@ -390,6 +436,8 @@
                 answerInput===''?'尚未輸入':answerInput;
             document.getElementById('guessDisplay').textContent=
                 guessInput===''?'尚未輸入':guessInput;
+            document.getElementById('roomCodeInput').value=
+                roomCodeInput===''?'':roomCodeInput;
         }
         function updateHistory(history){
             const list=document.getElementById('historyList');
@@ -420,6 +468,21 @@
                 }
                 list.appendChild(p);
             });
+        }
+        function addRoomCodeNumber(number){
+            if(roomCodeInput.length>=6){
+                return;
+            }
+            roomCodeInput+=number;
+            updateNumberDisplays();
+        }
+        function clearRoomCodeInput(){
+            roomCodeInput='';
+            updateNumberDisplays();
+        }
+        function deleteRoomCodeNumber(){
+            roomCodeInput=roomCodeInput.slice(0,-1);
+            updateNumberDisplays();
         }
         function addAnswerNumber(number){
             answerInput+=number;
@@ -640,6 +703,7 @@
             });
         };
         document.getElementById('joinRoomButton').onclick=()=>{
+            clearRoomCodeInput();
             showMessage('');
             showScreen('join');
         };
@@ -654,11 +718,23 @@
             });
         };
         document.getElementById('backFromJoinButton').onclick=()=>{
+            clearRoomCodeInput();
             showMessage('');
             showScreen('menu');
         };
+        document.querySelectorAll('#roomCodePad button').forEach(button=>{
+            button.onclick=()=>{
+                addRoomCodeNumber(button.dataset.number);
+            };
+        });
+        document.getElementById('roomCodeClearButton').onclick=()=>{
+            clearRoomCodeInput();
+        };
+        document.getElementById('roomCodeDeleteButton').onclick=()=>{
+            deleteRoomCodeNumber();
+        };
         document.getElementById('joinButton').onclick=()=>{
-            const code=document.getElementById('roomCodeInput').value.trim();
+            const code=roomCodeInput;
             if(!/^\d{6}$/.test(code)){
                 showMessage('請輸入6位數房間碼');
                 return;
@@ -754,3 +830,4 @@
     </script>
 </body>
 </html>
+```

@@ -311,18 +311,18 @@ function tryMatchmaking(){
             matchmakingQueue.delete(ws);
         }
     }
-    while(matchmakingQueue.size>=2){
-        const players=[...matchmakingQueue];
-        const firstIndex=Math.floor(Math.random()*players.length);
-        let secondIndex=Math.floor(Math.random()*players.length);
-        while(secondIndex===firstIndex){
-            secondIndex=Math.floor(Math.random()*players.length);
-        }
-        const player1=players[firstIndex];
-        const player2=players[secondIndex];
-        createMatchmakingRoom(player1,player2);
+    const players=[...matchmakingQueue];
+    for(let i=players.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [players[i],players[j]]=[players[j],players[i]];
+    }
+    for(let i=0;i+1<players.length;i+=2){
+        createMatchmakingRoom(players[i],players[i+1]);
     }
 }
+setInterval(()=>{
+    tryMatchmaking();
+},10000);
 function startRound(room,round){
     room.round=round;
     if(round===1){
@@ -603,12 +603,10 @@ wss.on('connection',(ws)=>{
                 showMessage(ws,'玩家識別失敗，請重新整理頁面');
                 return;
             }
-
             if(normalizeName(inputName)===RESERVED_NAME){
                 showMessage(ws,'名稱不可用');
                 return;
             }
-
             const name=inputName===OWNER_CODE?OWNER_NAME:inputName;
             ws.sessionId=sessionId;
             const nameKey=normalizeName(name);
@@ -655,7 +653,6 @@ wss.on('connection',(ws)=>{
             send(ws,{
                 type:'matchmakingWaiting'
             });
-            tryMatchmaking();
             return;
         }
         if(data.type==='cancelMatch'){
@@ -980,7 +977,6 @@ wss.on('connection',(ws)=>{
             }
         }
         removePlayerFromRoom(ws,false);
-        tryMatchmaking();
     });
 });
 const heartbeat=setInterval(()=>{

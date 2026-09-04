@@ -3,6 +3,9 @@ const http=require('http');
 const fs=require('fs');
 const path=require('path');
 const WebSocket=require('ws');
+const RESERVED_NAME='kaniki';
+const OWNER_CODE='KAO0327kao';
+const OWNER_NAME='kaniki';
 const server=http.createServer((req,res)=>{
     let filePath=path.join(__dirname,'public','index.html');
     if(req.url!=='/'){
@@ -586,13 +589,13 @@ wss.on('connection',(ws)=>{
             if(ws.playerName!==null){
                 return;
             }
-            const name=String(data.name||'').trim();
+            const inputName=String(data.name||'').trim();
             const sessionId=String(data.sessionId||'');
-            if(name===''){
+            if(inputName===''){
                 showMessage(ws,'名稱不能是空白');
                 return;
             }
-            if(name.length>20){
+            if(inputName.length>20){
                 showMessage(ws,'名稱不能超過20個字');
                 return;
             }
@@ -600,6 +603,13 @@ wss.on('connection',(ws)=>{
                 showMessage(ws,'玩家識別失敗，請重新整理頁面');
                 return;
             }
+
+            if(normalizeName(inputName)===RESERVED_NAME){
+                showMessage(ws,'名稱不可用');
+                return;
+            }
+
+            const name=inputName===OWNER_CODE?OWNER_NAME:inputName;
             ws.sessionId=sessionId;
             const nameKey=normalizeName(name);
             const existing=activeNames.get(nameKey);

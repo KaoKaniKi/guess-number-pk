@@ -40,6 +40,22 @@ function showMessage(ws,message){
         timeout:MESSAGE_TIMEOUT_MS
     });
 }
+function broadcastOnlineCount(){
+    let count=0;
+    wss.clients.forEach(ws=>{
+        if(ws.readyState===WebSocket.OPEN&&ws.playerName){
+            count++;
+        }
+    });
+    wss.clients.forEach(ws=>{
+        if(ws.readyState===WebSocket.OPEN){
+            send(ws,{
+                type:'onlineCount',
+                count:count
+            });
+        }
+    });
+}
 function normalizeName(name){
     return name.toLocaleLowerCase();
 }
@@ -635,6 +651,7 @@ wss.on('connection',(ws)=>{
                 type:'nameSet',
                 name:name
             });
+            broadcastOnlineCount();
             return;
         }
         if(!ws.playerName){
@@ -977,6 +994,7 @@ wss.on('connection',(ws)=>{
             }
         }
         removePlayerFromRoom(ws,false);
+        broadcastOnlineCount();
     });
 });
 const heartbeat=setInterval(()=>{

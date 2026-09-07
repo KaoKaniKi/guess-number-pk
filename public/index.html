@@ -22,6 +22,10 @@
             padding:8px 12px;
             margin:5px;
         }
+        #onlineCount{
+            margin:10px auto 20px;
+            font-size:18px;
+        }
         #roomInfo{
             margin:20px auto;
             max-width:500px;
@@ -127,6 +131,7 @@
 </head>
 <body>
     <h1>終極密碼說謊版對戰</h1>
+    <div id="onlineCount">目前在線人數：0 人</div>
     <div id="message"></div>
     <div id="nameScreen" class="screen active">
         <h2>輸入玩家名稱</h2>
@@ -248,7 +253,7 @@
                 <button data-number="6">6</button>
                 <button data-number="7">7</button>
                 <button data-number="8">8</button>
-                <button data-number="9">9</button>
+                <button data-number="8">8</button>
                 <button id="guessClearButton">清除</button>
                 <button data-number="0">0</button>
                 <button id="guessDeleteButton">刪除</button>
@@ -546,6 +551,11 @@
         ws.onmessage=(event)=>{
             const data=JSON.parse(event.data);
             if(data.type==='connected'){
+                return;
+            }
+            if(data.type==='onlineCount'){
+                document.getElementById('onlineCount').textContent=
+                    `目前在線人數：${data.count} 人`;
                 return;
             }
             if(data.type==='nameSet'){

@@ -3,8 +3,8 @@ const http=require('http');
 const fs=require('fs');
 const path=require('path');
 const crypto=require('crypto');
-const {promisify}=require('util');
 const {Pool}=require('pg');
+const {promisify}=require('util');
 const WebSocket=require('ws');
 const scrypt=promisify(crypto.scrypt);
 const server=http.createServer((req,res)=>{
@@ -711,6 +711,10 @@ async function loginUser(ws,username,password,sessionId){
         showMessage(ws,'請輸入帳號和密碼');
         return;
     }
+    if(sessionId===''){
+        showMessage(ws,'玩家識別失敗，請重新整理頁面');
+        return;
+    }
     try{
         const result=await pool.query(
             'SELECT username,password_hash FROM users WHERE username_key=$1',
@@ -805,54 +809,6 @@ wss.on('connection',(ws)=>{
                 String(data.password||''),
                 String(data.sessionId||'')
             );
-            return;
-        }
-        if(data.type==='setName'){
-            if(ws.playerName!==null){
-                return;
-            }
-            const inputName=String(data.name||'').trim();
-            const sessionId=String(data.sessionId||'');
-            if(inputName===''){
-                showMessage(ws,'名稱不能是空白');
-                return;
-            }
-            if(inputName.length>20){
-                showMessage(ws,'名稱不能超過20個字');
-                return;
-            }
-            if(sessionId===''){
-                showMessage(ws,'玩家識別失敗，請重新整理頁面');
-                return;
-            }
-            const nameKey=normalizeName(inputName);
-            const existing=activeNames.get(nameKey);
-            if(existing){
-                if(existing.sessionId!==sessionId){
-                    send(ws,{
-                        type:'nameTaken',
-                        message:'名字有人用了',
-                        timeout:MESSAGE_TIMEOUT_MS
-                    });
-                    return;
-                }
-                if(existing.ws!==ws){
-                    transferConnection(existing.ws,ws);
-                }
-                activeNames.delete(nameKey);
-            }
-            ws.sessionId=sessionId;
-            ws.playerName=inputName;
-            activeNames.set(nameKey,{
-                ws:ws,
-                sessionId:sessionId
-            });
-            console.log(`Player ${ws.playerId} name: ${inputName}`);
-            send(ws,{
-                type:'nameSet',
-                name:inputName
-            });
-            broadcastOnlineCount();
             return;
         }
         if(!ws.playerName){

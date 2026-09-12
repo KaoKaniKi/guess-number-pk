@@ -26,14 +26,6 @@
             margin:10px auto 20px;
             font-size:18px;
         }
-        #accountInput,#passwordInput,#registerUsername,#registerPassword,#registerPasswordConfirm{
-            width:260px;
-            box-sizing:border-box;
-        }
-        #loginMessage,#registerMessage{
-            min-height:25px;
-            margin:10px;
-        }
         #roomInfo{
             margin:20px auto;
             max-width:500px;
@@ -141,58 +133,19 @@
     <h1>終極密碼說謊版對戰</h1>
     <div id="onlineCount">目前在線人數：0 人</div>
     <div id="message"></div>
-    <div id="authScreen" class="screen active">
-        <div id="loginArea">
-            <h2>登入</h2>
-            <input
-                id="accountInput"
-                type="text"
-                maxlength="20"
-                placeholder="帳號／玩家名稱"
-            >
-            <br>
-            <input
-                id="passwordInput"
-                type="password"
-                maxlength="100"
-                placeholder="密碼"
-            >
-            <br>
-            <div id="loginMessage"></div>
-            <button id="loginButton">登入</button>
-            <button id="showRegisterButton">註冊帳號</button>
-        </div>
-        <div id="registerArea" style="display:none;">
-            <h2>註冊</h2>
-            <input
-                id="registerUsername"
-                type="text"
-                maxlength="20"
-                placeholder="帳號／玩家名稱"
-            >
-            <br>
-            <input
-                id="registerPassword"
-                type="password"
-                maxlength="100"
-                placeholder="密碼"
-            >
-            <br>
-            <input
-                id="registerPasswordConfirm"
-                type="password"
-                maxlength="100"
-                placeholder="再次輸入密碼"
-            >
-            <br>
-            <div id="registerMessage"></div>
-            <button id="registerButton">註冊</button>
-            <button id="showLoginButton">返回登入</button>
-        </div>
+    <div id="nameScreen" class="screen active">
+        <h2>輸入玩家名稱</h2>
+        <input
+            id="nameInput"
+            type="text"
+            maxlength="20"
+            placeholder="請輸入玩家名稱"
+        >
+        <br>
+        <button id="nameButton">確認</button>
     </div>
     <div id="menuScreen" class="screen">
         <h2>選擇</h2>
-        <p>玩家：<strong id="myNameText"></strong></p>
         <button id="createRoomButton">創建房間</button>
         <button id="joinRoomButton">加入房間</button>
         <button id="matchmakingButton">隨機配對</button>
@@ -350,7 +303,7 @@
         let guessInput='';
         let roomCodeInput='';
         const screens={
-            auth:document.getElementById('authScreen'),
+            name:document.getElementById('nameScreen'),
             menu:document.getElementById('menuScreen'),
             join:document.getElementById('joinScreen'),
             matchmaking:document.getElementById('matchmakingScreen'),
@@ -605,33 +558,17 @@
                     `目前在線人數：${data.count} 人`;
                 return;
             }
-            if(data.type==='loginResult'){
-                if(data.success){
-                    myName=data.username;
-                    document.getElementById('myNameText').textContent=myName;
-                    document.getElementById('loginMessage').textContent='';
-                    showMessage('');
-                    showScreen('menu');
-                }else{
-                    document.getElementById('loginMessage').textContent=
-                        data.message||'登入失敗';
-                }
+            if(data.type==='nameSet'){
+                myName=data.name;
+                showMessage('');
+                showScreen('menu');
                 return;
             }
-            if(data.type==='registerResult'){
-                document.getElementById('registerMessage').textContent=
-                    data.message||'';
-                if(data.success){
-                    document.getElementById('registerUsername').value='';
-                    document.getElementById('registerPassword').value='';
-                    document.getElementById('registerPasswordConfirm').value='';
-                    document.getElementById('accountInput').value='';
-                    document.getElementById('passwordInput').value='';
-                    document.getElementById('loginMessage').textContent=
-                        '註冊成功，請登入';
-                    document.getElementById('loginArea').style.display='block';
-                    document.getElementById('registerArea').style.display='none';
-                }
+            if(data.type==='nameTaken'){
+                showMessage(
+                    data.message,
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
                 return;
             }
             if(data.type==='message'){
@@ -693,6 +630,14 @@
                 );
                 return;
             }
+            if(data.type==='becameHost'){
+                myRole='host';
+                showMessage(
+                    data.message,
+                    data.timeout||MESSAGE_TIMEOUT_MS
+                );
+                return;
+            }
             if(data.type==='backToMenu'){
                 myRole=null;
                 showScreen('menu');
@@ -713,58 +658,16 @@
         ws.onclose=()=>{
             showMessage('與伺服器的連線已中斷');
         };
-        document.getElementById('loginButton').onclick=()=>{
-            const username=document.getElementById('accountInput').value.trim();
-            const password=document.getElementById('passwordInput').value;
-            document.getElementById('loginMessage').textContent='';
-            if(username===''){
-                document.getElementById('loginMessage').textContent='請輸入帳號';
-                return;
-            }
-            if(password===''){
-                document.getElementById('loginMessage').textContent='請輸入密碼';
+        document.getElementById('nameButton').onclick=()=>{
+            const name=document.getElementById('nameInput').value.trim();
+            if(name===''){
+                showMessage('請輸入玩家名稱');
                 return;
             }
             send({
-                type:'login',
-                username:username,
-                password:password,
+                type:'setName',
+                name:name,
                 sessionId:sessionId
-            });
-        };
-        document.getElementById('showRegisterButton').onclick=()=>{
-            document.getElementById('loginArea').style.display='none';
-            document.getElementById('registerArea').style.display='block';
-            document.getElementById('loginMessage').textContent='';
-            document.getElementById('registerMessage').textContent='';
-        };
-        document.getElementById('showLoginButton').onclick=()=>{
-            document.getElementById('registerArea').style.display='none';
-            document.getElementById('loginArea').style.display='block';
-            document.getElementById('loginMessage').textContent='';
-            document.getElementById('registerMessage').textContent='';
-        };
-        document.getElementById('registerButton').onclick=()=>{
-            const username=document.getElementById('registerUsername').value.trim();
-            const password=document.getElementById('registerPassword').value;
-            const passwordConfirm=document.getElementById('registerPasswordConfirm').value;
-            document.getElementById('registerMessage').textContent='';
-            if(username===''){
-                document.getElementById('registerMessage').textContent='請輸入帳號／玩家名稱';
-                return;
-            }
-            if(password.length<6){
-                document.getElementById('registerMessage').textContent='密碼至少需要6個字元';
-                return;
-            }
-            if(password!==passwordConfirm){
-                document.getElementById('registerMessage').textContent='兩次密碼不一致';
-                return;
-            }
-            send({
-                type:'register',
-                username:username,
-                password:password
             });
         };
         document.getElementById('createRoomButton').onclick=()=>{

@@ -2,10 +2,11 @@ const MESSAGE_TIMEOUT_MS=6000;
 const http=require('http');
 const fs=require('fs');
 const path=require('path');
+const crypto=require('crypto');
+const {promisify}=require('util');
+const {Pool}=require('pg');
 const WebSocket=require('ws');
-const RESERVED_NAME='kaniki';
-const OWNER_CODE='KAO0327kao';
-const OWNER_NAME='kaniki';
+const scrypt=promisify(crypto.scrypt);
 const server=http.createServer((req,res)=>{
     let filePath=path.join(__dirname,'public','index.html');
     if(req.url!=='/'){
@@ -28,6 +29,26 @@ const rooms=new Map();
 const activeNames=new Map();
 const matchmakingQueue=new Set();
 let nextPlayerId=1;
+const databaseUrl=process.env.DATABASE_URL;
+const pool=databaseUrl?new Pool({
+    connectionString:databaseUrl,
+    ssl:{rejectUnauthorized:false}
+}):null;
+async function initDatabase(){
+    if(!pool){
+        throw new Error('DATABASE_URL 未設定');
+    }
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users(
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(20) NOT NULL,
+            username_key VARCHAR(20) NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
+    console.log('Database initialized');
+}
 function send(ws,data){
     if(ws&&ws.readyState===WebSocket.OPEN){
         ws.send(JSON.stringify(data));
@@ -576,6 +597,174 @@ function removePlayerFromRoom(ws,sendBack=false){
     ws.roomCode=null;
     ws.role=null;
 }
+function makePasswordHash(password){
+    return new Promise((resolve,reject)=>{
+        const salt=crypto.randomBytes(16).toString('hex');
+        crypto.scrypt(password,salt,64,{
+            N:16384,
+            r:8,
+            p:1
+        },(error,derivedKey)=>{
+            if(error){
+                reject(error);
+                return;
+            }
+            resolve(`scrypt$16384$8$1$${salt}$${derivedKey.toString('hex')}`);
+        });
+    });
+}
+async function verifyPassword(password,stored){
+    const parts=String(stored).split('$');
+    if(parts.length!==6||parts[0]!=='scrypt'){
+        return false;
+    }
+    const N=Number(parts[1]);
+    const r=Number(parts[2]);
+    const p=Number(parts[3]);
+    const salt=parts[4];
+    const storedHex=parts[5];
+    if(!Number.isInteger(N)||!Number.isInteger(r)||!Number.isInteger(p)||!salt||!storedHex){
+        return false;
+    }
+    try{
+        const derivedKey=await new Promise((resolve,reject)=>{
+            crypto.scrypt(password,salt,64,{
+                N:N,
+                r:r,
+                p:p
+            },(error,key)=>{
+                if(error){
+                    reject(error);
+                    return;
+                }
+                resolve(key);
+            });
+        });
+        const storedKey=Buffer.from(storedHex,'hex');
+        if(storedKey.length!==derivedKey.length){
+            return false;
+        }
+        return crypto.timingSafeEqual(storedKey,derivedKey);
+    }catch(e){
+        return false;
+    }
+}
+async function registerUser(ws,username,password){
+    if(!pool){
+        showMessage(ws,'伺服器資料庫尚未設定');
+        return;
+    }
+    const name=username.trim();
+    const nameKey=normalizeName(name);
+    if(name===''||name.length>20){
+        showMessage(ws,'帳號／玩家名稱需為1～20個字');
+        return;
+    }
+    if(!/^[\p{L}\p{N}_-]+$/u.test(name)){
+        showMessage(ws,'帳號／玩家名稱只能使用中文、英文、數字、底線或連字號');
+        return;
+    }
+    if(password.length<6){
+        showMessage(ws,'密碼至少需要6個字元');
+        return;
+    }
+    if(password.length>100){
+        showMessage(ws,'密碼不能超過100個字元');
+        return;
+    }
+    try{
+        const existing=await pool.query(
+            'SELECT id FROM users WHERE username_key=$1',
+            [nameKey]
+        );
+        if(existing.rowCount>0){
+            send(ws,{
+                type:'registerResult',
+                success:false,
+                message:'帳號已存在'
+            });
+            return;
+        }
+        const passwordHash=await makePasswordHash(password);
+        await pool.query(
+            'INSERT INTO users(username,username_key,password_hash) VALUES($1,$2,$3)',
+            [name,nameKey,passwordHash]
+        );
+        send(ws,{
+            type:'registerResult',
+            success:true,
+            message:'註冊成功，請登入'
+        });
+    }catch(e){
+        console.error('Register error:',e);
+        showMessage(ws,'註冊失敗，請稍後再試');
+    }
+}
+async function loginUser(ws,username,password,sessionId){
+    if(!pool){
+        showMessage(ws,'伺服器資料庫尚未設定');
+        return;
+    }
+    const name=username.trim();
+    const nameKey=normalizeName(name);
+    if(name===''||password===''){
+        showMessage(ws,'請輸入帳號和密碼');
+        return;
+    }
+    try{
+        const result=await pool.query(
+            'SELECT username,password_hash FROM users WHERE username_key=$1',
+            [nameKey]
+        );
+        if(result.rowCount===0){
+            send(ws,{
+                type:'loginResult',
+                success:false,
+                message:'帳號或密碼錯誤'
+            });
+            return;
+        }
+        const user=result.rows[0];
+        const valid=await verifyPassword(password,user.password_hash);
+        if(!valid){
+            send(ws,{
+                type:'loginResult',
+                success:false,
+                message:'帳號或密碼錯誤'
+            });
+            return;
+        }
+        const existing=activeNames.get(nameKey);
+        if(existing&&existing.ws!==ws){
+            if(existing.sessionId!==sessionId){
+                send(ws,{
+                    type:'loginResult',
+                    success:false,
+                    message:'此帳號目前已在線上'
+                });
+                return;
+            }
+            transferConnection(existing.ws,ws);
+        }
+        activeNames.delete(nameKey);
+        ws.sessionId=sessionId;
+        ws.playerName=user.username;
+        activeNames.set(nameKey,{
+            ws:ws,
+            sessionId:sessionId
+        });
+        console.log(`Player ${ws.playerId} logged in: ${user.username}`);
+        send(ws,{
+            type:'loginResult',
+            success:true,
+            username:user.username
+        });
+        broadcastOnlineCount();
+    }catch(e){
+        console.error('Login error:',e);
+        showMessage(ws,'登入失敗，請稍後再試');
+    }
+}
 wss.on('connection',(ws)=>{
     ws.playerId=nextPlayerId++;
     ws.playerName=null;
@@ -601,6 +790,23 @@ wss.on('connection',(ws)=>{
         if(typeof data.type!=='string'){
             return;
         }
+        if(data.type==='register'){
+            registerUser(
+                ws,
+                String(data.username||''),
+                String(data.password||'')
+            );
+            return;
+        }
+        if(data.type==='login'){
+            loginUser(
+                ws,
+                String(data.username||''),
+                String(data.password||''),
+                String(data.sessionId||'')
+            );
+            return;
+        }
         if(data.type==='setName'){
             if(ws.playerName!==null){
                 return;
@@ -619,13 +825,7 @@ wss.on('connection',(ws)=>{
                 showMessage(ws,'玩家識別失敗，請重新整理頁面');
                 return;
             }
-            if(normalizeName(inputName)===RESERVED_NAME){
-                showMessage(ws,'名稱不可用');
-                return;
-            }
-            const name=inputName===OWNER_CODE?OWNER_NAME:inputName;
-            ws.sessionId=sessionId;
-            const nameKey=normalizeName(name);
+            const nameKey=normalizeName(inputName);
             const existing=activeNames.get(nameKey);
             if(existing){
                 if(existing.sessionId!==sessionId){
@@ -641,21 +841,22 @@ wss.on('connection',(ws)=>{
                 }
                 activeNames.delete(nameKey);
             }
-            ws.playerName=name;
+            ws.sessionId=sessionId;
+            ws.playerName=inputName;
             activeNames.set(nameKey,{
                 ws:ws,
                 sessionId:sessionId
             });
-            console.log(`Player ${ws.playerId} name: ${name}`);
+            console.log(`Player ${ws.playerId} name: ${inputName}`);
             send(ws,{
                 type:'nameSet',
-                name:name
+                name:inputName
             });
             broadcastOnlineCount();
             return;
         }
         if(!ws.playerName){
-            showMessage(ws,'請先設定名稱');
+            showMessage(ws,'請先登入');
             return;
         }
         if(data.type==='findMatch'){
@@ -1009,8 +1210,18 @@ const heartbeat=setInterval(()=>{
 },MESSAGE_TIMEOUT_MS);
 wss.on('close',()=>{
     clearInterval(heartbeat);
+    if(pool){
+        pool.end().catch(()=>{});
+    }
 });
 const PORT=process.env.PORT||3000;
-server.listen(PORT,'0.0.0.0',()=>{
-    console.log(`Server running on port ${PORT}`);
-});
+initDatabase()
+    .then(()=>{
+        server.listen(PORT,'0.0.0.0',()=>{
+            console.log(`Server running on port ${PORT}`);
+        });
+    })
+    .catch(error=>{
+        console.error('Database initialization failed:',error);
+        process.exit(1);
+    });

@@ -507,45 +507,61 @@ async function recordMatchResult(room){
     const client=await pool.connect();
     try{
         await client.query('BEGIN');
-        await client.query(
-            `INSERT INTO user_stats(user_id,wins,losses,draws)
-             VALUES($1,0,0,0)
-             ON CONFLICT(user_id) DO NOTHING`,
-            [host.ws.userId]
-        );
-        await client.query(
-            `INSERT INTO user_stats(user_id,wins,losses,draws)
-             VALUES($1,0,0,0)
-             ON CONFLICT(user_id) DO NOTHING`,
-            [guest.ws.userId]
-        );
+        if(host.ws.userId!==null){
+            await client.query(
+                `INSERT INTO user_stats(user_id,wins,losses,draws)
+                 VALUES($1,0,0,0)
+                 ON CONFLICT(user_id) DO NOTHING`,
+                [host.ws.userId]
+            );
+        }
+        if(guest.ws.userId!==null){
+            await client.query(
+                `INSERT INTO user_stats(user_id,wins,losses,draws)
+                 VALUES($1,0,0,0)
+                 ON CONFLICT(user_id) DO NOTHING`,
+                [guest.ws.userId]
+            );
+        }
         if(result==='hostWin'){
-            await client.query(
-                'UPDATE user_stats SET wins=wins+1 WHERE user_id=$1',
-                [host.ws.userId]
-            );
-            await client.query(
-                'UPDATE user_stats SET losses=losses+1 WHERE user_id=$1',
-                [guest.ws.userId]
-            );
+            if(host.ws.userId!==null){
+                await client.query(
+                    'UPDATE user_stats SET wins=wins+1 WHERE user_id=$1',
+                    [host.ws.userId]
+                );
+            }
+            if(guest.ws.userId!==null){
+                await client.query(
+                    'UPDATE user_stats SET losses=losses+1 WHERE user_id=$1',
+                    [guest.ws.userId]
+                );
+            }
         }else if(result==='guestWin'){
-            await client.query(
-                'UPDATE user_stats SET losses=losses+1 WHERE user_id=$1',
-                [host.ws.userId]
-            );
-            await client.query(
-                'UPDATE user_stats SET wins=wins+1 WHERE user_id=$1',
-                [guest.ws.userId]
-            );
+            if(host.ws.userId!==null){
+                await client.query(
+                    'UPDATE user_stats SET losses=losses+1 WHERE user_id=$1',
+                    [host.ws.userId]
+                );
+            }
+            if(guest.ws.userId!==null){
+                await client.query(
+                    'UPDATE user_stats SET wins=wins+1 WHERE user_id=$1',
+                    [guest.ws.userId]
+                );
+            }
         }else{
-            await client.query(
-                'UPDATE user_stats SET draws=draws+1 WHERE user_id=$1',
-                [host.ws.userId]
-            );
-            await client.query(
-                'UPDATE user_stats SET draws=draws+1 WHERE user_id=$1',
-                [guest.ws.userId]
-            );
+            if(host.ws.userId!==null){
+                await client.query(
+                    'UPDATE user_stats SET draws=draws+1 WHERE user_id=$1',
+                    [host.ws.userId]
+                );
+            }
+            if(guest.ws.userId!==null){
+                await client.query(
+                    'UPDATE user_stats SET draws=draws+1 WHERE user_id=$1',
+                    [guest.ws.userId]
+                );
+            }
         }
         await client.query(
             'UPDATE site_stats SET completed_games=completed_games+1 WHERE id=1'
@@ -1103,6 +1119,31 @@ async function authenticateSocket(req){
         tokenHash:tokenHash
     };
 }
+function getGuestRequest(req){
+    let url;
+    try{
+        url=new URL(
+            req.url||'/',
+            `http://${req.headers.host||'localhost'}`
+        );
+    }catch(e){
+        return {
+            requested:false,
+            name:null
+        };
+    }
+    if(url.searchParams.get('guest')!=='1'){
+        return {
+            requested:false,
+            name:null
+        };
+    }
+    const name=(url.searchParams.get('playerName')||'').trim();
+    return {
+        requested:true,
+        name:name
+    };
+}
 wss.on('connection',async(ws,req)=>{
     ws.playerId=nextPlayerId++;
     ws.playerName=null;
@@ -1110,29 +1151,46 @@ wss.on('connection',async(ws,req)=>{
     ws.sessionTokenHash=null;
     ws.roomCode=null;
     ws.role=null;
+    ws.isGuest=false;
     ws.isAlive=true;
     ws.ignoreClose=false;
     try{
-        const user=await authenticateSocket(req);
-        if(!user){
-            send(ws,{
-                type:'authRequired'
-            });
-            ws.close(4001,'Authentication required');
-            return;
+        const guestRequest=getGuestRequest(req);
+        if(guestRequest.requested){
+            if(!validUsername(guestRequest.name)){
+                send(ws,{
+                    type:'authError',
+                    message:'訪客名稱必須為1到20個字元'
+                });
+                ws.close(4001,'Invalid guest name');
+                return;
+            }
+            ws.isGuest=true;
+            ws.userId=null;
+            ws.playerName=guestRequest.name;
+        }else{
+            const user=await authenticateSocket(req);
+            if(!user){
+                send(ws,{
+                    type:'authRequired'
+                });
+                ws.close(4001,'Authentication required');
+                return;
+            }
+            ws.userId=user.id;
+            ws.playerName=user.username;
+            ws.sessionTokenHash=user.tokenHash;
         }
-        ws.userId=user.id;
-        ws.playerName=user.username;
-        ws.sessionTokenHash=user.tokenHash;
         const nameKey=normalizeName(ws.playerName);
         const existing=activeNames.get(nameKey);
         if(existing&&existing.ws!==ws){
-            if(existing.userId!==ws.userId){
+            if(existing.userId!==ws.userId||
+               existing.isGuest!==ws.isGuest){
                 send(ws,{
                     type:'authError',
-                    message:'帳號登入狀態衝突，請重新登入'
+                    message:'這個玩家名稱目前已有人在線'
                 });
-                ws.close(4001,'Authentication conflict');
+                ws.close(4001,'Player name conflict');
                 return;
             }
             transferConnection(existing.ws,ws);
@@ -1140,12 +1198,14 @@ wss.on('connection',async(ws,req)=>{
         }
         activeNames.set(nameKey,{
             ws:ws,
-            userId:ws.userId
+            userId:ws.userId,
+            isGuest:ws.isGuest
         });
-        console.log(`Player connected: ${ws.playerId}, name: ${ws.playerName}`);
+        console.log(`Player connected: ${ws.playerId}, name: ${ws.playerName}, guest: ${ws.isGuest}`);
         send(ws,{
             type:'authenticated',
-            name:ws.playerName
+            name:ws.playerName,
+            guest:ws.isGuest
         });
         broadcastOnlineCount();
     }catch(e){

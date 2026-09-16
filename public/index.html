@@ -37,6 +37,11 @@
             padding:14px 12px;
             font-size:22px;
         }
+        .menuButton{
+            display:block;
+            width:260px;
+            margin:12px auto;
+        }
         .rulesBox{
             max-width:700px;
             margin:25px auto;
@@ -73,8 +78,16 @@
             box-sizing:border-box;
             margin:10px auto;
         }
-        .authSwitch{
-            margin-top:20px;
+        #personalStatsBox{
+            max-width:500px;
+            margin:30px auto;
+            border:1px solid #aaa;
+            padding:25px;
+            box-sizing:border-box;
+        }
+        .personalStatsItem{
+            font-size:24px;
+            margin:25px 0;
         }
         #roomInfo{
             margin:20px auto;
@@ -245,10 +258,6 @@
             >
             <button id="loginButton">登入</button>
         </div>
-        <div class="authSwitch">
-            <p>還沒有帳號？</p>
-            <button id="goRegisterButton">註冊帳號</button>
-        </div>
         <button id="backFromLoginButton">返回</button>
     </div>
     <div id="registerScreen" class="screen">
@@ -274,10 +283,6 @@
             >
             <button id="registerButton">註冊</button>
         </div>
-        <div class="authSwitch">
-            <p>已經有帳號？</p>
-            <button id="goLoginButton">返回登入</button>
-        </div>
         <button id="backFromRegisterButton">返回</button>
     </div>
     <div id="guestScreen" class="screen">
@@ -296,11 +301,29 @@
     <div id="menuScreen" class="screen">
         <h2>選擇</h2>
         <p>目前玩家：<strong id="currentPlayerName"></strong></p>
-        <button id="createRoomButton">創建房間</button>
-        <button id="joinRoomButton">加入房間</button>
-        <button id="matchmakingButton">隨機配對</button>
-        <br>
-        <button id="logoutButton">登出</button>
+        <button id="personalStatsButton" class="menuButton">查看個人戰績</button>
+        <button id="createRoomButton" class="menuButton">創建房間</button>
+        <button id="joinRoomButton" class="menuButton">加入房間</button>
+        <button id="matchmakingButton" class="menuButton">隨機配對</button>
+        <button id="logoutButton" class="menuButton">登出</button>
+    </div>
+    <div id="personalStatsScreen" class="screen">
+        <h2>個人戰績</h2>
+        <div id="personalStatsBox">
+            <div class="personalStatsItem">
+                玩家名稱：<strong id="statsPlayerName">-</strong>
+            </div>
+            <div class="personalStatsItem">
+                勝場：<strong id="statsWins">-</strong>
+            </div>
+            <div class="personalStatsItem">
+                負場：<strong id="statsLosses">-</strong>
+            </div>
+            <div class="personalStatsItem">
+                平手：<strong id="statsDraws">-</strong>
+            </div>
+        </div>
+        <button id="backFromPersonalStatsButton">返回</button>
     </div>
     <div id="joinScreen" class="screen">
         <h2>加入房間</h2>
@@ -460,6 +483,7 @@
             register:document.getElementById('registerScreen'),
             guest:document.getElementById('guestScreen'),
             menu:document.getElementById('menuScreen'),
+            personalStats:document.getElementById('personalStatsScreen'),
             join:document.getElementById('joinScreen'),
             matchmaking:document.getElementById('matchmakingScreen'),
             range:document.getElementById('rangeScreen'),
@@ -519,8 +543,15 @@
             return ready?'已準備':'未準備';
         }
         function updateMenuButton(){
-            document.getElementById('logoutButton').textContent=
-                isGuest?'返回首頁':'登出';
+            const logoutButton=document.getElementById('logoutButton');
+            const personalStatsButton=document.getElementById('personalStatsButton');
+            if(isGuest){
+                personalStatsButton.style.display='none';
+                logoutButton.textContent='返回首頁';
+            }else{
+                personalStatsButton.style.display='block';
+                logoutButton.textContent='登出';
+            }
         }
         function updateReadyButton(data){
             const readyButton=document.getElementById('readyButton');
@@ -892,6 +923,29 @@
                 showMessage(e.message);
             }
         }
+        async function loadPersonalStats(){
+            document.getElementById('statsPlayerName').textContent='載入中…';
+            document.getElementById('statsWins').textContent='載入中…';
+            document.getElementById('statsLosses').textContent='載入中…';
+            document.getElementById('statsDraws').textContent='載入中…';
+            try{
+                const data=await apiRequest('/api/myStats');
+                document.getElementById('statsPlayerName').textContent=
+                    data.username;
+                document.getElementById('statsWins').textContent=
+                    data.wins;
+                document.getElementById('statsLosses').textContent=
+                    data.losses;
+                document.getElementById('statsDraws').textContent=
+                    data.draws;
+            }catch(e){
+                document.getElementById('statsPlayerName').textContent='無法取得';
+                document.getElementById('statsWins').textContent='-';
+                document.getElementById('statsLosses').textContent='-';
+                document.getElementById('statsDraws').textContent='-';
+                showMessage(e.message);
+            }
+        }
         async function login(){
             const username=document.getElementById('loginUsernameInput').value.trim();
             const password=document.getElementById('loginPasswordInput').value;
@@ -984,6 +1038,7 @@
                 }
                 document.getElementById('currentPlayerName').textContent='';
                 document.getElementById('guestNameInput').value='';
+                updateMenuButton();
                 showScreen('home');
                 showMessage('');
                 return;
@@ -1006,6 +1061,7 @@
                 ws=null;
             }
             document.getElementById('currentPlayerName').textContent='';
+            updateMenuButton();
             showScreen('home');
             showMessage('已登出');
         }
@@ -1061,19 +1117,20 @@
         document.getElementById('loginButton').onclick=()=>{
             login();
         };
-        document.getElementById('goRegisterButton').onclick=()=>{
-            showMessage('');
-            showScreen('register');
-        };
-        document.getElementById('goLoginButton').onclick=()=>{
-            showMessage('');
-            showScreen('login');
-        };
         document.getElementById('registerButton').onclick=()=>{
             register();
         };
         document.getElementById('guestStartButton').onclick=()=>{
             startGuest();
+        };
+        document.getElementById('personalStatsButton').onclick=()=>{
+            showMessage('');
+            showScreen('personalStats');
+            loadPersonalStats();
+        };
+        document.getElementById('backFromPersonalStatsButton').onclick=()=>{
+            showMessage('');
+            showScreen('menu');
         };
         document.getElementById('logoutButton').onclick=()=>{
             logout();

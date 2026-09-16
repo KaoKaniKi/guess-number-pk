@@ -1,4 +1,3 @@
-```js
 const MESSAGE_TIMEOUT_MS=6000;
 const SESSION_MAX_AGE_SECONDS=60*60*24*30;
 const http=require('http');
@@ -1587,4 +1586,3 @@ process.on('SIGTERM',async()=>{
         process.exit(0);
     }
 });
-```

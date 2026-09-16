@@ -1,53 +1,27 @@
 const MESSAGE_TIMEOUT_MS=6000;
-const SESSION_MAX_AGE_SECONDS=60*60*24*30;
 const http=require('http');
 const fs=require('fs');
 const path=require('path');
-const crypto=require('crypto');
-const {promisify}=require('util');
 const WebSocket=require('ws');
-const {Pool}=require('pg');
-const scrypt=promisify(crypto.scrypt);
-if(!process.env.DATABASE_URL){
-    console.error('DATABASE_URL is required');
-    process.exit(1);
-}
-const pool=new Pool({
-    connectionString:process.env.DATABASE_URL,
-    ssl:process.env.NODE_ENV==='production'?{rejectUnauthorized:false}:false
-});
-const server=http.createServer(async(req,res)=>{
-    if(req.method==='GET'&&req.url==='/'){
-        const filePath=path.join(__dirname,'public','index.html');
-        fs.readFile(filePath,(err,data)=>{
-            if(err){
-                res.writeHead(500,{'Content-Type':'text/plain; charset=utf-8'});
-                res.end('Server error');
-                return;
-            }
-            res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
-            res.end(data);
-        });
+const RESERVED_NAME='kaniki';
+const OWNER_CODE='KAO0327kao';
+const OWNER_NAME='kaniki';
+const server=http.createServer((req,res)=>{
+    let filePath=path.join(__dirname,'public','index.html');
+    if(req.url!=='/'){
+        res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});
+        res.end('Not Found');
         return;
     }
-    if(req.method==='POST'&&req.url==='/api/register'){
-        await handleRegister(req,res);
-        return;
-    }
-    if(req.method==='POST'&&req.url==='/api/login'){
-        await handleLogin(req,res);
-        return;
-    }
-    if(req.method==='POST'&&req.url==='/api/logout'){
-        await handleLogout(req,res);
-        return;
-    }
-    if(req.method==='GET'&&req.url==='/api/me'){
-        await handleMe(req,res);
-        return;
-    }
-    res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});
-    res.end('Not Found');
+    fs.readFile(filePath,(err,data)=>{
+        if(err){
+            res.writeHead(500,{'Content-Type':'text/plain; charset=utf-8'});
+            res.end('Server error');
+            return;
+        }
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+        res.end(data);
+    });
 });
 const wss=new WebSocket.Server({server});
 const rooms=new Map();
@@ -254,7 +228,6 @@ function resetGameRoom(room,leavingWs){
     leavingWs.roomCode=null;
     leavingWs.role=null;
     console.log(`Game reset after player left: ${room.code}`);
-    broadcastOnlineCount();
 }
 function transferConnection(oldWs,newWs){
     removeFromMatchmaking(oldWs);
@@ -278,10 +251,6 @@ function transferConnection(oldWs,newWs){
                     room.phase==='guess'||
                     room.phase==='lieChoice'){
                 sendGameState(room,newWs);
-            }else if(room.phase==='roundEnd'){
-                sendRoundEndState(room,newWs);
-            }else if(room.phase==='finished'){
-                sendFinishedState(room,newWs);
             }
         }
     }
@@ -481,21 +450,6 @@ function sendRoundEnd(room){
     room.phase='finished';
     sendFinalResult(room,data);
 }
-function sendRoundEndState(room,ws){
-    const attacker=getPlayer(room,room.attackerRole);
-    if(!attacker){
-        return;
-    }
-    send(ws,{
-        type:'roundEnd',
-        round:room.round,
-        attacker:attacker.name,
-        steps:room.step,
-        answer:room.answer,
-        roundHistory:room.roundHistory,
-        timeout:MESSAGE_TIMEOUT_MS
-    });
-}
 function sendFinalResult(room,roundEndData){
     const hostSteps=room.roundSteps.host;
     const guestSteps=room.roundSteps.guest;
@@ -522,31 +476,6 @@ function sendFinalResult(room,roundEndData){
     };
     send(room.host.ws,data);
     send(room.guest.ws,data);
-}
-function sendFinishedState(room,ws){
-    const hostSteps=room.roundSteps.host;
-    const guestSteps=room.roundSteps.guest;
-    let resultText;
-    if(hostSteps<guestSteps){
-        resultText=`${room.host.name} 以 ${hostSteps} 步擊敗 ${room.guest.name} 的 ${guestSteps} 步`;
-    }else if(hostSteps>guestSteps){
-        resultText=`${room.guest.name} 以 ${guestSteps} 步擊敗 ${room.host.name} 的 ${hostSteps} 步`;
-    }else{
-        resultText=`${room.host.name} 的 ${hostSteps} 步與 ${room.guest.name} 的 ${guestSteps} 步打成平手`;
-    }
-    send(ws,{
-        type:'finalResult',
-        hostName:room.host.name,
-        guestName:room.guest.name,
-        hostSteps:hostSteps,
-        guestSteps:guestSteps,
-        resultText:resultText,
-        round:2,
-        attacker:getPlayer(room,'guest').name,
-        roundSteps:guestSteps,
-        answer:room.answer,
-        roundHistory:room.roundHistory
-    });
 }
 function leaveFinishedRoom(room,ws,sendBack=true){
     clearStartTimer(room);
@@ -647,332 +576,22 @@ function removePlayerFromRoom(ws,sendBack=false){
     ws.roomCode=null;
     ws.role=null;
 }
-function getCookies(req){
-    const cookies={};
-    const header=req.headers.cookie||'';
-    header.split(';').forEach(part=>{
-        const index=part.indexOf('=');
-        if(index<0){
-            return;
-        }
-        const key=part.slice(0,index).trim();
-        const value=part.slice(index+1).trim();
-        if(key){
-            cookies[key]=decodeURIComponent(value);
-        }
-    });
-    return cookies;
-}
-function sessionTokenHash(token){
-    return crypto.createHash('sha256').update(token).digest('hex');
-}
-function setSessionCookie(res,token){
-    const secure=process.env.NODE_ENV==='production'||process.env.RENDER==='true';
-    const cookie=`guessNumberPkSession=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure?'; Secure':''}`;
-    res.setHeader('Set-Cookie',cookie);
-}
-function clearSessionCookie(res){
-    const secure=process.env.NODE_ENV==='production'||process.env.RENDER==='true';
-    const cookie=`guessNumberPkSession=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure?'; Secure':''}`;
-    res.setHeader('Set-Cookie',cookie);
-}
-function sendJson(res,status,data){
-    res.writeHead(status,{
-        'Content-Type':'application/json; charset=utf-8',
-        'Cache-Control':'no-store'
-    });
-    res.end(JSON.stringify(data));
-}
-function readJson(req){
-    return new Promise((resolve,reject)=>{
-        let body='';
-        req.on('data',chunk=>{
-            body+=chunk.toString();
-            if(body.length>1024*1024){
-                reject(new Error('body too large'));
-                req.destroy();
-            }
-        });
-        req.on('end',()=>{
-            try{
-                resolve(JSON.parse(body||'{}'));
-            }catch(e){
-                reject(new Error('invalid json'));
-            }
-        });
-        req.on('error',reject);
-    });
-}
-function validUsername(username){
-    if(typeof username!=='string'){
-        return false;
-    }
-    const value=username.trim();
-    if(value===''){
-        return false;
-    }
-    if(value.length>20){
-        return false;
-    }
-    return true;
-}
-function validPassword(password){
-    return typeof password==='string'&&password.length>=6&&password.length<=200;
-}
-async function createPasswordHash(password){
-    const salt=crypto.randomBytes(16).toString('hex');
-    const derivedKey=await scrypt(password,salt,64,{N:16384,r:8,p:1,maxmem:32*1024*1024});
-    return `scrypt$16384$8$1$${salt}$${derivedKey.toString('hex')}`;
-}
-async function verifyPassword(password,passwordHash){
-    const parts=passwordHash.split('$');
-    if(parts.length!==6||parts[0]!=='scrypt'){
-        return false;
-    }
-    const N=Number(parts[1]);
-    const r=Number(parts[2]);
-    const p=Number(parts[3]);
-    const salt=parts[4];
-    const stored=Buffer.from(parts[5],'hex');
-    if(!Number.isInteger(N)||!Number.isInteger(r)||!Number.isInteger(p)||stored.length===0){
-        return false;
-    }
-    const derived=await scrypt(password,salt,stored.length,{N:N,r:r,p:p,maxmem:32*1024*1024});
-    return derived.length===stored.length&&crypto.timingSafeEqual(derived,stored);
-}
-async function createSession(userId){
-    const token=crypto.randomBytes(32).toString('hex');
-    const tokenHash=sessionTokenHash(token);
-    await pool.query('DELETE FROM sessions WHERE expires_at<NOW()');
-    await pool.query(
-        'INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL \'30 days\')',
-        [tokenHash,userId]
-    );
-    return token;
-}
-async function getSessionUser(req){
-    const token=getCookies(req).guessNumberPkSession;
-    if(!token){
-        return null;
-    }
-    const tokenHash=sessionTokenHash(token);
-    const result=await pool.query(
-        `SELECT u.id,u.username
-         FROM sessions s
-         JOIN users u ON u.id=s.user_id
-         WHERE s.token_hash=$1 AND s.expires_at>NOW()` ,
-        [tokenHash]
-    );
-    if(result.rowCount===0){
-        return null;
-    }
-    await pool.query(
-        'UPDATE sessions SET expires_at=NOW()+INTERVAL \'30 days\' WHERE token_hash=$1',
-        [tokenHash]
-    );
-    return result.rows[0];
-}
-async function handleRegister(req,res){
-    let data;
-    try{
-        data=await readJson(req);
-    }catch(e){
-        sendJson(res,400,{ok:false,message:'資料格式錯誤'});
-        return;
-    }
-    const username=String(data.username||'').trim();
-    const password=typeof data.password==='string'?data.password:'';
-    const confirmPassword=typeof data.confirmPassword==='string'?data.confirmPassword:'';
-    if(!validUsername(username)){
-        sendJson(res,400,{ok:false,message:username===''?'帳號不能是空白':'帳號不能超過20個字'});
-        return;
-    }
-    if(!validPassword(password)){
-        sendJson(res,400,{ok:false,message:'密碼長度需為6到200個字元'});
-        return;
-    }
-    if(password!==confirmPassword){
-        sendJson(res,400,{ok:false,message:'兩次輸入的密碼不一致'});
-        return;
-    }
-    const usernameKey=normalizeName(username);
-    try{
-        const existing=await pool.query('SELECT id FROM users WHERE username_key=$1',[usernameKey]);
-        if(existing.rowCount>0){
-            sendJson(res,409,{ok:false,message:'帳號已有人使用'});
-            return;
-        }
-        const passwordHash=await createPasswordHash(password);
-        const result=await pool.query(
-            'INSERT INTO users(username,username_key,password_hash) VALUES($1,$2,$3) RETURNING id,username',
-            [username,usernameKey,passwordHash]
-        );
-        const token=await createSession(result.rows[0].id);
-        setSessionCookie(res,token);
-        sendJson(res,200,{ok:true,username:result.rows[0].username});
-    }catch(e){
-        if(e.code==='23505'){
-            sendJson(res,409,{ok:false,message:'帳號已有人使用'});
-            return;
-        }
-        console.error('Register error:',e);
-        sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
-    }
-}
-async function handleLogin(req,res){
-    let data;
-    try{
-        data=await readJson(req);
-    }catch(e){
-        sendJson(res,400,{ok:false,message:'資料格式錯誤'});
-        return;
-    }
-    const username=String(data.username||'').trim();
-    const password=typeof data.password==='string'?data.password:'';
-    if(username===''||password===''){
-        sendJson(res,400,{ok:false,message:'請輸入帳號與密碼'});
-        return;
-    }
-    try{
-        const result=await pool.query(
-            'SELECT id,username,password_hash FROM users WHERE username_key=$1',
-            [normalizeName(username)]
-        );
-        if(result.rowCount===0){
-            sendJson(res,401,{ok:false,message:'帳號或密碼錯誤'});
-            return;
-        }
-        const user=result.rows[0];
-        const matched=await verifyPassword(password,user.password_hash);
-        if(!matched){
-            sendJson(res,401,{ok:false,message:'帳號或密碼錯誤'});
-            return;
-        }
-        const token=await createSession(user.id);
-        setSessionCookie(res,token);
-        sendJson(res,200,{ok:true,username:user.username});
-    }catch(e){
-        console.error('Login error:',e);
-        sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
-    }
-}
-async function handleLogout(req,res){
-    const token=getCookies(req).guessNumberPkSession;
-    if(token){
-        try{
-            await pool.query('DELETE FROM sessions WHERE token_hash=$1',[sessionTokenHash(token)]);
-        }catch(e){
-            console.error('Logout error:',e);
-        }
-    }
-    clearSessionCookie(res);
-    sendJson(res,200,{ok:true});
-}
-async function handleMe(req,res){
-    try{
-        const user=await getSessionUser(req);
-        if(!user){
-            sendJson(res,200,{ok:true,authenticated:false});
-            return;
-        }
-        sendJson(res,200,{ok:true,authenticated:true,username:user.username});
-    }catch(e){
-        console.error('Session check error:',e);
-        sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
-    }
-}
-async function authenticateSocket(req){
-    const token=getCookies(req).guessNumberPkSession;
-    if(!token){
-        return null;
-    }
-    const tokenHash=sessionTokenHash(token);
-    const result=await pool.query(
-        `SELECT u.id,u.username
-         FROM sessions s
-         JOIN users u ON u.id=s.user_id
-         WHERE s.token_hash=$1 AND s.expires_at>NOW()` ,
-        [tokenHash]
-    );
-    if(result.rowCount===0){
-        return null;
-    }
-    await pool.query(
-        'UPDATE sessions SET expires_at=NOW()+INTERVAL \'30 days\' WHERE token_hash=$1',
-        [tokenHash]
-    );
-    return {
-        id:result.rows[0].id,
-        username:result.rows[0].username,
-        tokenHash:tokenHash
-    };
-}
-async function closeSocketSession(ws){
-    if(ws.sessionTokenHash){
-        try{
-            await pool.query('DELETE FROM sessions WHERE token_hash=$1',[ws.sessionTokenHash]);
-        }catch(e){
-            console.error('Session cleanup error:',e);
-        }
-    }
-}
-wss.on('connection',async(ws,req)=>{
+wss.on('connection',(ws)=>{
     ws.playerId=nextPlayerId++;
     ws.playerName=null;
-    ws.userId=null;
-    ws.sessionTokenHash=null;
+    ws.sessionId=null;
     ws.roomCode=null;
     ws.role=null;
     ws.isAlive=true;
     ws.ignoreClose=false;
-    try{
-        const user=await authenticateSocket(req);
-        if(!user){
-            send(ws,{
-                type:'authRequired'
-            });
-            ws.close(4001,'Authentication required');
-            return;
-        }
-        ws.userId=user.id;
-        ws.playerName=user.username;
-        ws.sessionTokenHash=user.tokenHash;
-        const nameKey=normalizeName(ws.playerName);
-        const existing=activeNames.get(nameKey);
-        if(existing&&existing.ws!==ws){
-            if(existing.userId!==ws.userId){
-                send(ws,{
-                    type:'authError',
-                    message:'帳號登入狀態衝突，請重新登入'
-                });
-                ws.close(4001,'Authentication conflict');
-                return;
-            }
-            transferConnection(existing.ws,ws);
-            activeNames.delete(nameKey);
-        }
-        activeNames.set(nameKey,{
-            ws:ws,
-            userId:ws.userId
-        });
-        console.log(`Player connected: ${ws.playerId}, name: ${ws.playerName}`);
-        send(ws,{
-            type:'authenticated',
-            name:ws.playerName
-        });
-        broadcastOnlineCount();
-    }catch(e){
-        console.error('WebSocket authentication error:',e);
-        try{
-            ws.close(1011,'Authentication error');
-        }catch(error){
-        }
-        return;
-    }
     ws.on('pong',()=>{
         ws.isAlive=true;
     });
-    ws.on('message',async(message)=>{
+    console.log(`Player connected: ${ws.playerId}`);
+    send(ws,{
+        type:'connected'
+    });
+    ws.on('message',(message)=>{
         let data;
         try{
             data=JSON.parse(message);
@@ -980,6 +599,63 @@ wss.on('connection',async(ws,req)=>{
             return;
         }
         if(typeof data.type!=='string'){
+            return;
+        }
+        if(data.type==='setName'){
+            if(ws.playerName!==null){
+                return;
+            }
+            const inputName=String(data.name||'').trim();
+            const sessionId=String(data.sessionId||'');
+            if(inputName===''){
+                showMessage(ws,'名稱不能是空白');
+                return;
+            }
+            if(inputName.length>20){
+                showMessage(ws,'名稱不能超過20個字');
+                return;
+            }
+            if(sessionId===''){
+                showMessage(ws,'玩家識別失敗，請重新整理頁面');
+                return;
+            }
+            if(normalizeName(inputName)===RESERVED_NAME){
+                showMessage(ws,'名稱不可用');
+                return;
+            }
+            const name=inputName===OWNER_CODE?OWNER_NAME:inputName;
+            ws.sessionId=sessionId;
+            const nameKey=normalizeName(name);
+            const existing=activeNames.get(nameKey);
+            if(existing){
+                if(existing.sessionId!==sessionId){
+                    send(ws,{
+                        type:'nameTaken',
+                        message:'名字有人用了',
+                        timeout:MESSAGE_TIMEOUT_MS
+                    });
+                    return;
+                }
+                if(existing.ws!==ws){
+                    transferConnection(existing.ws,ws);
+                }
+                activeNames.delete(nameKey);
+            }
+            ws.playerName=name;
+            activeNames.set(nameKey,{
+                ws:ws,
+                sessionId:sessionId
+            });
+            console.log(`Player ${ws.playerId} name: ${name}`);
+            send(ws,{
+                type:'nameSet',
+                name:name
+            });
+            broadcastOnlineCount();
+            return;
+        }
+        if(!ws.playerName){
+            showMessage(ws,'請先設定名稱');
             return;
         }
         if(data.type==='findMatch'){
@@ -1304,7 +980,7 @@ wss.on('connection',async(ws,req)=>{
             return;
         }
     });
-    ws.on('close',async()=>{
+    ws.on('close',()=>{
         console.log(`Player disconnected: ${ws.playerName||ws.playerId}`);
         if(ws.ignoreClose){
             return;
@@ -1335,42 +1011,7 @@ const heartbeat=setInterval(()=>{
 wss.on('close',()=>{
     clearInterval(heartbeat);
 });
-async function initDatabase(){
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS users(
-            id BIGSERIAL PRIMARY KEY,
-            username VARCHAR(20) NOT NULL,
-            username_key VARCHAR(20) NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-    `);
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS sessions(
-            id BIGSERIAL PRIMARY KEY,
-            token_hash CHAR(64) NOT NULL UNIQUE,
-            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            expires_at TIMESTAMPTZ NOT NULL
-        )
-    `);
-    await pool.query('CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at)');
-    console.log('PostgreSQL ready');
-}
 const PORT=process.env.PORT||3000;
-initDatabase().then(()=>{
-    server.listen(PORT,'0.0.0.0',()=>{
-        console.log(`Server running on port ${PORT}`);
-    });
-}).catch(error=>{
-    console.error('Database initialization failed:',error);
-    process.exit(1);
-});
-process.on('SIGTERM',async()=>{
-    try{
-        await pool.end();
-    }finally{
-        process.exit(0);
-    }
+server.listen(PORT,'0.0.0.0',()=>{
+    console.log(`Server running on port ${PORT}`);
 });

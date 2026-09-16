@@ -126,6 +126,12 @@
             align-items:start;
             text-align:center;
         }
+        .gameContent.answerMode{
+            grid-template-columns:1fr;
+        }
+        .gameContent.answerMode .gameActionArea{
+            width:100%;
+        }
         #historyArea{
             margin:0;
             max-width:none;
@@ -136,6 +142,10 @@
         }
         .gameActionArea{
             min-width:0;
+        }
+        .gameContent.answerMode .gameActionArea>div{
+            margin-left:auto;
+            margin-right:auto;
         }
         .choiceButton{
             display:block;
@@ -228,12 +238,18 @@
             .gameContent{
                 grid-template-columns:1fr;
             }
+            .gameContent.answerMode{
+                grid-template-columns:1fr;
+            }
             #historyArea{
                 min-height:0;
                 order:1;
             }
             .gameActionArea{
                 order:2;
+            }
+            .gameContent.answerMode .gameActionArea{
+                order:1;
             }
         }
     </style>
@@ -443,7 +459,7 @@
             <p>目前第 <strong id="stepNumber"></strong> 步</p>
             <p id="gameStatus"></p>
         </div>
-        <div class="gameContent">
+        <div id="gameContent" class="gameContent answerMode">
             <div id="historyArea" class="gameBox" style="display:none;">
                 <h3>本回合詢問記錄</h3>
                 <div id="historyList">尚無紀錄</div>
@@ -679,6 +695,7 @@
             list.textContent='';
             if(!history||history.length===0){
                 list.textContent='尚無紀錄';
+                area.style.display='block';
                 return;
             }
             history.forEach((item,index)=>{
@@ -757,9 +774,12 @@
         function updateGameState(data){
             showScreen('game');
             hideGameAreas();
+            const gameContent=document.getElementById('gameContent');
             if(data.phase==='answer'){
+                gameContent.classList.add('answerMode');
                 hideHistory();
             }else{
+                gameContent.classList.remove('answerMode');
                 updateHistory(data.roundHistory);
             }
             document.getElementById('roundNumber').textContent=data.round;

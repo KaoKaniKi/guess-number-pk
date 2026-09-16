@@ -26,6 +26,45 @@
             margin:10px auto 20px;
             font-size:18px;
         }
+        #message{
+            margin:20px;
+            min-height:25px;
+        }
+        .homeButton{
+            display:block;
+            width:260px;
+            margin:15px auto;
+            padding:14px 12px;
+            font-size:22px;
+        }
+        .rulesBox{
+            max-width:700px;
+            margin:25px auto;
+            text-align:left;
+            line-height:1.8;
+        }
+        .rulesBox h3{
+            margin-top:28px;
+        }
+        .rulesBox p{
+            margin:10px 0;
+        }
+        .rulesBox ul{
+            padding-left:25px;
+        }
+        .authBox{
+            max-width:400px;
+            margin:20px auto;
+        }
+        .authBox input{
+            display:block;
+            width:280px;
+            box-sizing:border-box;
+            margin:10px auto;
+        }
+        .authSwitch{
+            margin-top:20px;
+        }
         #roomInfo{
             margin:20px auto;
             max-width:500px;
@@ -35,10 +74,6 @@
             padding:15px;
             margin:10px auto;
             max-width:400px;
-        }
-        #message{
-            margin:20px;
-            min-height:25px;
         }
         .rangeButton{
             display:block;
@@ -127,26 +162,39 @@
         .liedResponse{
             color:red;
         }
-        .authBox{
-            max-width:400px;
-            margin:20px auto;
-        }
-        .authBox input{
-            display:block;
-            width:280px;
-            box-sizing:border-box;
-            margin:10px auto;
-        }
-        .authSwitch{
-            margin-top:20px;
-        }
     </style>
 </head>
 <body>
     <h1>終極密碼說謊版對戰</h1>
     <div id="onlineCount">目前在線人數：0 人</div>
     <div id="message"></div>
-    <div id="loginScreen" class="screen active">
+    <div id="homeScreen" class="screen active">
+        <button id="rulesButton" class="homeButton">遊戲規則</button>
+        <button id="enterGameButton" class="homeButton">進入遊戲</button>
+    </div>
+    <div id="rulesScreen" class="screen">
+        <h2>遊戲規則</h2>
+        <div class="rulesBox">
+            <p>兩名玩家進行終極密碼對戰，每回合分為<strong>猜數者</strong>與<strong>回答者</strong>。</p>
+            <p>回答者先在指定範圍內設定答案，猜數者持續猜測。猜錯時，回答者必須告知答案較大或較小；每回合可以有 <strong>1 次說謊機會</strong>，將答案方向反過來。</p>
+            <p>猜中時不能說謊，必須直接告知「猜中了」，並結束該回合。</p>
+            <p>答案不會是邊界。例如範圍為 <code>0 ~ 100</code> 時，答案只會是 <code>1 ~ 99</code>。</p>
+            <p>一場對戰共 <strong>2 回合</strong>，雙方會交換猜數者與回答者。兩回合結束後，比較各自猜中所花的步數，步數較少者獲勝；相同則平手。</p>
+            <h3>房間</h3>
+            <p>你可以建立房間，建立後會取得一組 <strong>6 位數房間碼</strong>，將房間碼提供給其他玩家即可加入。</p>
+            <p>也可以輸入其他玩家提供的房間碼加入房間。</p>
+            <p>此外，也可以使用<strong>隨機配對</strong>，由系統從等待中的玩家中隨機尋找對手。</p>
+            <h3>特殊情況</h3>
+            <p><strong>玩家中途離線</strong></p>
+            <ul>
+                <li>對戰開始前離開：留下的玩家可以繼續留在房間，並成為房主。</li>
+                <li>對戰開始後離開：該場對戰直接結束，留下的玩家保留在房間並可重新開始。</li>
+                <li>未完成的對戰不會計入戰績。</li>
+            </ul>
+        </div>
+        <button id="backFromRulesButton">返回</button>
+    </div>
+    <div id="loginScreen" class="screen">
         <h2>玩家登入</h2>
         <div class="authBox">
             <input
@@ -352,8 +400,9 @@
         let answerInput='';
         let guessInput='';
         let roomCodeInput='';
-        let reconnectTimer=null;
         const screens={
+            home:document.getElementById('homeScreen'),
+            rules:document.getElementById('rulesScreen'),
             login:document.getElementById('loginScreen'),
             register:document.getElementById('registerScreen'),
             menu:document.getElementById('menuScreen'),
@@ -628,10 +677,6 @@
             }
             ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
             ws.onopen=()=>{
-                if(reconnectTimer){
-                    clearTimeout(reconnectTimer);
-                    reconnectTimer=null;
-                }
             };
             ws.onmessage=(event)=>{
                 const data=JSON.parse(event.data);
@@ -737,10 +782,8 @@
                 }
             };
             ws.onclose=()=>{
-                if(ws&&ws.readyState===WebSocket.CLOSED){
-                    if(myName){
-                        showMessage('與伺服器的連線已中斷');
-                    }
+                if(myName){
+                    showMessage('與伺服器的連線已中斷');
                 }
             };
         }
@@ -753,10 +796,10 @@
                         myName;
                     connectWebSocket();
                 }else{
-                    showScreen('login');
+                    showScreen('home');
                 }
             }catch(e){
-                showScreen('login');
+                showScreen('home');
                 showMessage(e.message);
             }
         }
@@ -778,7 +821,8 @@
                 });
                 myName=data.username;
                 document.getElementById('loginPasswordInput').value='';
-                document.getElementById('currentPlayerName').textContent=myName;
+                document.getElementById('currentPlayerName').textContent=
+                    myName;
                 showMessage('登入成功');
                 connectWebSocket();
             }catch(e){
@@ -810,7 +854,8 @@
                 myName=data.username;
                 document.getElementById('registerPasswordInput').value='';
                 document.getElementById('registerConfirmPasswordInput').value='';
-                document.getElementById('currentPlayerName').textContent=myName;
+                document.getElementById('currentPlayerName').textContent=
+                    myName;
                 showMessage('註冊成功');
                 connectWebSocket();
             }catch(e){
@@ -838,6 +883,18 @@
             showScreen('login');
             showMessage('已登出');
         }
+        document.getElementById('rulesButton').onclick=()=>{
+            showMessage('');
+            showScreen('rules');
+        };
+        document.getElementById('enterGameButton').onclick=()=>{
+            showMessage('');
+            showScreen('login');
+        };
+        document.getElementById('backFromRulesButton').onclick=()=>{
+            showMessage('');
+            showScreen('home');
+        };
         document.getElementById('loginButton').onclick=()=>{
             login();
         };

@@ -7,7 +7,7 @@
     <style>
         body{
             margin:0;
-            padding:30px 20px;
+            padding:70px 20px 30px;
             font-family:Arial,sans-serif;
             text-align:center;
         }
@@ -23,8 +23,17 @@
             margin:5px;
         }
         #onlineCount{
-            margin:10px auto 20px;
+            position:fixed;
+            top:0;
+            left:0;
+            right:0;
+            margin:0;
+            padding:12px 10px;
             font-size:18px;
+            background:white;
+            border-bottom:1px solid #ddd;
+            z-index:1000;
+            box-sizing:border-box;
         }
         #message{
             margin:20px;
@@ -108,10 +117,39 @@
             margin:15px auto;
             max-width:500px;
         }
+        .gameContent{
+            width:min(100%,900px);
+            margin:20px auto;
+            display:grid;
+            grid-template-columns:minmax(0,1fr) minmax(300px,360px);
+            gap:25px;
+            align-items:start;
+            text-align:center;
+        }
+        #historyArea{
+            margin:0;
+            max-width:none;
+            min-height:280px;
+        }
+        #historyArea h3{
+            margin-top:5px;
+        }
+        .gameActionArea{
+            min-width:0;
+        }
         .choiceButton{
             display:block;
             width:320px;
+            max-width:100%;
             margin:12px auto;
+            box-sizing:border-box;
+        }
+        #answerArea,
+        #guessArea,
+        #lieArea,
+        #waitingArea{
+            margin:0;
+            max-width:none;
         }
         #finalResultText{
             font-size:22px;
@@ -124,6 +162,7 @@
         }
         .numberInput{
             width:260px;
+            max-width:100%;
             margin:15px auto;
             padding:12px;
             border:1px solid #aaa;
@@ -133,6 +172,7 @@
         }
         .numberPad{
             width:300px;
+            max-width:100%;
             margin:10px auto;
             display:grid;
             grid-template-columns:repeat(3,1fr);
@@ -164,8 +204,6 @@
             font-size:20px;
         }
         #historyArea{
-            margin:25px auto;
-            max-width:500px;
             border:1px solid #aaa;
             padding:12px;
             box-sizing:border-box;
@@ -186,13 +224,25 @@
         .liedResponse{
             color:red;
         }
+        @media(max-width:700px){
+            .gameContent{
+                grid-template-columns:1fr;
+            }
+            #historyArea{
+                min-height:0;
+                order:1;
+            }
+            .gameActionArea{
+                order:2;
+            }
+        }
     </style>
 </head>
 <body>
+    <div id="onlineCount">目前在線人數：0 人</div>
     <div id="message"></div>
     <div id="homeScreen" class="screen active">
         <h1>終極密碼說謊版對戰</h1>
-        <div id="onlineCount">目前在線人數：0 人</div>
         <button id="rulesButton" class="homeButton">遊戲規則</button>
         <button id="siteInfoButton" class="homeButton">網站資訊</button>
         <button id="enterGameButton" class="homeButton">進入遊戲</button>
@@ -393,55 +443,59 @@
             <p>目前第 <strong id="stepNumber"></strong> 步</p>
             <p id="gameStatus"></p>
         </div>
-        <div id="historyArea" class="gameBox">
-            <h3>本回合紀錄</h3>
-            <div id="historyList">尚無紀錄</div>
-        </div>
-        <div id="answerArea" class="gameBox" style="display:none;">
-            <h3>決定答案</h3>
-            <div id="answerDisplay" class="numberInput">尚未輸入</div>
-            <div id="answerPad" class="numberPad">
-                <button data-number="1">1</button>
-                <button data-number="2">2</button>
-                <button data-number="3">3</button>
-                <button data-number="4">4</button>
-                <button data-number="5">5</button>
-                <button data-number="6">6</button>
-                <button data-number="7">7</button>
-                <button data-number="8">8</button>
-                <button data-number="9">9</button>
-                <button id="answerClearButton">清除</button>
-                <button data-number="0">0</button>
-                <button id="answerDeleteButton">刪除</button>
+        <div class="gameContent">
+            <div id="historyArea" class="gameBox" style="display:none;">
+                <h3>本回合詢問記錄</h3>
+                <div id="historyList">尚無紀錄</div>
             </div>
-            <button id="answerButton">確定答案</button>
-        </div>
-        <div id="guessArea" class="gameBox" style="display:none;">
-            <h3>猜數字</h3>
-            <div id="guessDisplay" class="numberInput">尚未輸入</div>
-            <div id="guessPad" class="numberPad">
-                <button data-number="1">1</button>
-                <button data-number="2">2</button>
-                <button data-number="3">3</button>
-                <button data-number="4">4</button>
-                <button data-number="5">5</button>
-                <button data-number="6">6</button>
-                <button data-number="7">7</button>
-                <button data-number="8">8</button>
-                <button data-number="9">9</button>
-                <button id="guessClearButton">清除</button>
-                <button data-number="0">0</button>
-                <button id="guessDeleteButton">刪除</button>
+            <div class="gameActionArea">
+                <div id="answerArea" class="gameBox" style="display:none;">
+                    <h3>決定答案</h3>
+                    <div id="answerDisplay" class="numberInput">尚未輸入</div>
+                    <div id="answerPad" class="numberPad">
+                        <button data-number="1">1</button>
+                        <button data-number="2">2</button>
+                        <button data-number="3">3</button>
+                        <button data-number="4">4</button>
+                        <button data-number="5">5</button>
+                        <button data-number="6">6</button>
+                        <button data-number="7">7</button>
+                        <button data-number="8">8</button>
+                        <button data-number="9">9</button>
+                        <button id="answerClearButton">清除</button>
+                        <button data-number="0">0</button>
+                        <button id="answerDeleteButton">刪除</button>
+                    </div>
+                    <button id="answerButton">確定答案</button>
+                </div>
+                <div id="guessArea" class="gameBox" style="display:none;">
+                    <h3>猜數字</h3>
+                    <div id="guessDisplay" class="numberInput">尚未輸入</div>
+                    <div id="guessPad" class="numberPad">
+                        <button data-number="1">1</button>
+                        <button data-number="2">2</button>
+                        <button data-number="3">3</button>
+                        <button data-number="4">4</button>
+                        <button data-number="5">5</button>
+                        <button data-number="6">6</button>
+                        <button data-number="7">7</button>
+                        <button data-number="8">8</button>
+                        <button data-number="9">9</button>
+                        <button id="guessClearButton">清除</button>
+                        <button data-number="0">0</button>
+                        <button id="guessDeleteButton">刪除</button>
+                    </div>
+                    <button id="guessButton">猜</button>
+                </div>
+                <div id="lieArea" class="gameBox" style="display:none;">
+                    <h3>請選擇</h3>
+                    <button id="truthButton" class="choiceButton"></button>
+                    <button id="lieButton" class="choiceButton"></button>
+                </div>
+                <div id="waitingArea" class="gameBox" style="display:none;">
+                    <p>等待對方操作……</p>
+                </div>
             </div>
-            <button id="guessButton">猜</button>
-        </div>
-        <div id="lieArea" class="gameBox" style="display:none;">
-            <h3>請選擇</h3>
-            <button id="truthButton" class="choiceButton"></button>
-            <button id="lieButton" class="choiceButton"></button>
-        </div>
-        <div id="waitingArea" class="gameBox" style="display:none;">
-            <p>等待對方操作……</p>
         </div>
     </div>
     <div id="roundEndScreen" class="screen">
@@ -620,6 +674,7 @@
                 roomCodeInput===''?'':roomCodeInput;
         }
         function updateHistory(history){
+            const area=document.getElementById('historyArea');
             const list=document.getElementById('historyList');
             list.textContent='';
             if(!history||history.length===0){
@@ -631,6 +686,7 @@
                 p.textContent=`第 ${index+1} 次：猜 ${item.guess} → ${item.response}`;
                 list.appendChild(p);
             });
+            area.style.display='block';
         }
         function updateEndHistory(elementId,history){
             const list=document.getElementById(elementId);
@@ -694,10 +750,18 @@
             document.getElementById('lieArea').style.display='none';
             document.getElementById('waitingArea').style.display='none';
         }
+        function hideHistory(){
+            document.getElementById('historyArea').style.display='none';
+            document.getElementById('historyList').textContent='尚無紀錄';
+        }
         function updateGameState(data){
             showScreen('game');
             hideGameAreas();
-            updateHistory(data.roundHistory);
+            if(data.phase==='answer'){
+                hideHistory();
+            }else{
+                updateHistory(data.roundHistory);
+            }
             document.getElementById('roundNumber').textContent=data.round;
             document.getElementById('gameRange').textContent=`0 ~ ${data.range}`;
             document.getElementById('stepNumber').textContent=data.step;

@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -51,6 +52,17 @@
         }
         .rulesBox ul{
             padding-left:25px;
+        }
+        .siteInfoBox{
+            max-width:500px;
+            margin:30px auto;
+            border:1px solid #aaa;
+            padding:25px;
+            box-sizing:border-box;
+        }
+        .siteInfoItem{
+            font-size:22px;
+            margin:25px 0;
         }
         .authBox{
             max-width:400px;
@@ -165,11 +177,12 @@
     </style>
 </head>
 <body>
-    <h1>終極密碼說謊版對戰</h1>
     <div id="onlineCount">目前在線人數：0 人</div>
     <div id="message"></div>
     <div id="homeScreen" class="screen active">
+        <h1>終極密碼說謊版對戰</h1>
         <button id="rulesButton" class="homeButton">遊戲規則</button>
+        <button id="siteInfoButton" class="homeButton">網站資訊</button>
         <button id="enterGameButton" class="homeButton">進入遊戲</button>
     </div>
     <div id="rulesScreen" class="screen">
@@ -193,6 +206,21 @@
             </ul>
         </div>
         <button id="backFromRulesButton">返回</button>
+    </div>
+    <div id="siteInfoScreen" class="screen">
+        <h2>網站資訊</h2>
+        <div class="siteInfoBox">
+            <div class="siteInfoItem">
+                網站總拜訪次數：<strong id="visitCountValue">-</strong>
+            </div>
+            <div class="siteInfoItem">
+                帳號總數：<strong id="accountCountValue">-</strong>
+            </div>
+            <div class="siteInfoItem">
+                遊戲總局數：<strong id="gameCountValue">-</strong>
+            </div>
+        </div>
+        <button id="backFromSiteInfoButton">返回</button>
     </div>
     <div id="loginScreen" class="screen">
         <h2>玩家登入</h2>
@@ -403,6 +431,7 @@
         const screens={
             home:document.getElementById('homeScreen'),
             rules:document.getElementById('rulesScreen'),
+            siteInfo:document.getElementById('siteInfoScreen'),
             login:document.getElementById('loginScreen'),
             register:document.getElementById('registerScreen'),
             menu:document.getElementById('menuScreen'),
@@ -803,6 +832,25 @@
                 showMessage(e.message);
             }
         }
+        async function loadSiteInfo(){
+            document.getElementById('visitCountValue').textContent='載入中…';
+            document.getElementById('accountCountValue').textContent='載入中…';
+            document.getElementById('gameCountValue').textContent='載入中…';
+            try{
+                const data=await apiRequest('/api/siteInfo');
+                document.getElementById('visitCountValue').textContent=
+                    data.visitCount;
+                document.getElementById('accountCountValue').textContent=
+                    data.accountCount;
+                document.getElementById('gameCountValue').textContent=
+                    data.gameCount;
+            }catch(e){
+                document.getElementById('visitCountValue').textContent='無法取得';
+                document.getElementById('accountCountValue').textContent='無法取得';
+                document.getElementById('gameCountValue').textContent='無法取得';
+                showMessage(e.message);
+            }
+        }
         async function login(){
             const username=document.getElementById('loginUsernameInput').value.trim();
             const password=document.getElementById('loginPasswordInput').value;
@@ -887,11 +935,20 @@
             showMessage('');
             showScreen('rules');
         };
+        document.getElementById('siteInfoButton').onclick=()=>{
+            showMessage('');
+            showScreen('siteInfo');
+            loadSiteInfo();
+        };
         document.getElementById('enterGameButton').onclick=()=>{
             showMessage('');
             showScreen('login');
         };
         document.getElementById('backFromRulesButton').onclick=()=>{
+            showMessage('');
+            showScreen('home');
+        };
+        document.getElementById('backFromSiteInfoButton').onclick=()=>{
             showMessage('');
             showScreen('home');
         };
@@ -1056,3 +1113,4 @@
     </script>
 </body>
 </html>
+```

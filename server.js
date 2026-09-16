@@ -333,7 +333,8 @@ function createMatchmakingRoom(player1,player2){
         roundSteps:{
             host:null,
             guest:null
-        }
+        },
+        statsRecorded:false
     };
     rooms.set(code,room);
     host.roomCode=code;
@@ -478,22 +479,90 @@ function sendRoundEnd(room){
     }
     room.roundSteps[room.attackerRole]=room.step;
     room.phase='finished';
-    sendFinalResult(room,data);
+    recordMatchResult(room).then(()=>{
+        sendFinalResult(room,data);
+    }).catch(error=>{
+        console.error(`Failed to record match result for room ${room.code}:`,error);
+        sendFinalResult(room,data);
+    });
 }
-function sendRoundEndState(room,ws){
-    const attacker=getPlayer(room,room.attackerRole);
-    if(!attacker){
+async function recordMatchResult(room){
+    if(room.statsRecorded){
         return;
     }
-    send(ws,{
-        type:'roundEnd',
-        round:room.round,
-        attacker:attacker.name,
-        steps:room.step,
-        answer:room.answer,
-        roundHistory:room.roundHistory,
-        timeout:MESSAGE_TIMEOUT_MS
-    });
+    const hostSteps=room.roundSteps.host;
+    const guestSteps=room.roundSteps.guest;
+    if(!Number.isInteger(hostSteps)||!Number.isInteger(guestSteps)){
+        throw new Error('Invalid round steps');
+    }
+    const host=getPlayer(room,'host');
+    const guest=getPlayer(room,'guest');
+    if(!host||!guest){
+        throw new Error('Players are missing');
+    }
+    let result;
+    if(hostSteps<guestSteps){
+        result='hostWin';
+    }else if(hostSteps>guestSteps){
+        result='guestWin';
+    }else{
+        result='draw';
+    }
+    const client=await pool.connect();
+    try{
+        await client.query('BEGIN');
+        await client.query(
+            `INSERT INTO user_stats(user_id,wins,losses,draws)
+             VALUES($1,0,0,0)
+             ON CONFLICT(user_id) DO NOTHING`,
+            [host.ws.userId]
+        );
+        await client.query(
+            `INSERT INTO user_stats(user_id,wins,losses,draws)
+             VALUES($1,0,0,0)
+             ON CONFLICT(user_id) DO NOTHING`,
+            [guest.ws.userId]
+        );
+        if(result==='hostWin'){
+            await client.query(
+                'UPDATE user_stats SET wins=wins+1 WHERE user_id=$1',
+                [host.ws.userId]
+            );
+            await client.query(
+                'UPDATE user_stats SET losses=losses+1 WHERE user_id=$1',
+                [guest.ws.userId]
+            );
+        }else if(result==='guestWin'){
+            await client.query(
+                'UPDATE user_stats SET losses=losses+1 WHERE user_id=$1',
+                [host.ws.userId]
+            );
+            await client.query(
+                'UPDATE user_stats SET wins=wins+1 WHERE user_id=$1',
+                [guest.ws.userId]
+            );
+        }else{
+            await client.query(
+                'UPDATE user_stats SET draws=draws+1 WHERE user_id=$1',
+                [host.ws.userId]
+            );
+            await client.query(
+                'UPDATE user_stats SET draws=draws+1 WHERE user_id=$1',
+                [guest.ws.userId]
+            );
+        }
+        await client.query('COMMIT');
+        room.statsRecorded=true;
+        console.log(`Match result recorded: ${host.name} vs ${guest.name} (${result})`);
+    }catch(error){
+        try{
+            await client.query('ROLLBACK');
+        }catch(e){
+        }
+        throw error;
+    }finally{
+        client.release();
+    }
 }
 function sendFinalResult(room,roundEndData){
     const hostSteps=room.roundSteps.host;
@@ -521,6 +590,21 @@ function sendFinalResult(room,roundEndData){
     };
     send(room.host.ws,data);
     send(room.guest.ws,data);
+}
+function sendRoundEndState(room,ws){
+    const attacker=getPlayer(room,room.attackerRole);
+    if(!attacker){
+        return;
+    }
+    send(ws,{
+        type:'roundEnd',
+        round:room.round,
+        attacker:attacker.name,
+        steps:room.step,
+        answer:room.answer,
+        roundHistory:room.roundHistory,
+        timeout:MESSAGE_TIMEOUT_MS
+    });
 }
 function sendFinishedState(room,ws){
     const hostSteps=room.roundSteps.host;
@@ -1068,7 +1152,8 @@ wss.on('connection',async(ws,req)=>{
                 roundSteps:{
                     host:null,
                     guest:null
-                }
+                },
+                statsRecorded:false
             };
             rooms.set(code,room);
             ws.roomCode=code;
@@ -1383,6 +1468,14 @@ async function initDatabase(){
             user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             expires_at TIMESTAMPTZ NOT NULL
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_stats(
+            user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            draws INTEGER NOT NULL DEFAULT 0
         )
     `);
     await pool.query(

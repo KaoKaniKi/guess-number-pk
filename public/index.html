@@ -176,10 +176,10 @@
     </style>
 </head>
 <body>
-    <div id="onlineCount">目前在線人數：0 人</div>
     <div id="message"></div>
     <div id="homeScreen" class="screen active">
         <h1>終極密碼說謊版對戰</h1>
+        <div id="onlineCount">目前在線人數：0 人</div>
         <button id="rulesButton" class="homeButton">遊戲規則</button>
         <button id="siteInfoButton" class="homeButton">網站資訊</button>
         <button id="enterGameButton" class="homeButton">進入遊戲</button>
@@ -221,6 +221,13 @@
         </div>
         <button id="backFromSiteInfoButton">返回</button>
     </div>
+    <div id="entryScreen" class="screen">
+        <h2>進入遊戲</h2>
+        <button id="loginChoiceButton" class="homeButton">登入</button>
+        <button id="registerChoiceButton" class="homeButton">註冊</button>
+        <button id="guestChoiceButton" class="homeButton">訪客身分遊玩</button>
+        <button id="backFromEntryButton">返回</button>
+    </div>
     <div id="loginScreen" class="screen">
         <h2>玩家登入</h2>
         <div class="authBox">
@@ -242,6 +249,7 @@
             <p>還沒有帳號？</p>
             <button id="goRegisterButton">註冊帳號</button>
         </div>
+        <button id="backFromLoginButton">返回</button>
     </div>
     <div id="registerScreen" class="screen">
         <h2>註冊帳號</h2>
@@ -270,6 +278,20 @@
             <p>已經有帳號？</p>
             <button id="goLoginButton">返回登入</button>
         </div>
+        <button id="backFromRegisterButton">返回</button>
+    </div>
+    <div id="guestScreen" class="screen">
+        <h2>訪客身分遊玩</h2>
+        <div class="authBox">
+            <input
+                id="guestNameInput"
+                type="text"
+                maxlength="20"
+                placeholder="輸入玩家名稱"
+            >
+            <button id="guestStartButton">開始遊玩</button>
+        </div>
+        <button id="backFromGuestButton">返回</button>
     </div>
     <div id="menuScreen" class="screen">
         <h2>選擇</h2>
@@ -423,6 +445,8 @@
         let ws=null;
         let myName='';
         let myRole=null;
+        let isGuest=false;
+        let connectionMode='login';
         let messageTimer=null;
         let answerInput='';
         let guessInput='';
@@ -431,8 +455,10 @@
             home:document.getElementById('homeScreen'),
             rules:document.getElementById('rulesScreen'),
             siteInfo:document.getElementById('siteInfoScreen'),
+            entry:document.getElementById('entryScreen'),
             login:document.getElementById('loginScreen'),
             register:document.getElementById('registerScreen'),
+            guest:document.getElementById('guestScreen'),
             menu:document.getElementById('menuScreen'),
             join:document.getElementById('joinScreen'),
             matchmaking:document.getElementById('matchmakingScreen'),
@@ -491,6 +517,10 @@
         }
         function readyText(ready){
             return ready?'已準備':'未準備';
+        }
+        function updateMenuButton(){
+            document.getElementById('logoutButton').textContent=
+                isGuest?'返回首頁':'登出';
         }
         function updateReadyButton(data){
             const readyButton=document.getElementById('readyButton');
@@ -697,30 +727,48 @@
                 }
             }
         }
-        function connectWebSocket(){
+        function connectWebSocket(mode,name=''){
             if(ws&&(
                 ws.readyState===WebSocket.OPEN||
                 ws.readyState===WebSocket.CONNECTING)){
                 return;
             }
-            ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}`);
+            connectionMode=mode;
+            let wsUrl=`${location.protocol==='https:'?'wss':'ws'}://${location.host}`;
+            if(mode==='guest'){
+                wsUrl+=`?guest=1&playerName=${encodeURIComponent(name)}`;
+            }
+            ws=new WebSocket(wsUrl);
             ws.onopen=()=>{
             };
             ws.onmessage=(event)=>{
                 const data=JSON.parse(event.data);
                 if(data.type==='authenticated'){
                     myName=data.name;
+                    isGuest=data.guest===true;
                     document.getElementById('currentPlayerName').textContent=
                         myName;
+                    updateMenuButton();
                     showMessage('');
                     showScreen('menu');
                     return;
                 }
-                if(data.type==='authRequired'||data.type==='authError'){
+                if(data.type==='authRequired'){
                     myName='';
                     myRole=null;
+                    isGuest=false;
                     showScreen('login');
-                    showMessage(data.message||'請先登入');
+                    showMessage('請先登入');
+                    return;
+                }
+                if(data.type==='authError'){
+                    myRole=null;
+                    if(connectionMode==='guest'){
+                        showScreen('guest');
+                    }else{
+                        showScreen('login');
+                    }
+                    showMessage(data.message||'無法建立連線');
                     return;
                 }
                 if(data.type==='onlineCount'){
@@ -810,22 +858,16 @@
                 }
             };
             ws.onclose=()=>{
-                if(myName){
+                ws=null;
+                if(myName&&connectionMode!=='guest'){
                     showMessage('與伺服器的連線已中斷');
                 }
             };
         }
         async function checkLogin(){
             try{
-                const data=await apiRequest('/api/me');
-                if(data.authenticated){
-                    myName=data.username;
-                    document.getElementById('currentPlayerName').textContent=
-                        myName;
-                    connectWebSocket();
-                }else{
-                    showScreen('home');
-                }
+                await apiRequest('/api/me');
+                showScreen('home');
             }catch(e){
                 showScreen('home');
                 showMessage(e.message);
@@ -867,11 +909,12 @@
                     password:password
                 });
                 myName=data.username;
+                isGuest=false;
                 document.getElementById('loginPasswordInput').value='';
                 document.getElementById('currentPlayerName').textContent=
                     myName;
                 showMessage('登入成功');
-                connectWebSocket();
+                connectWebSocket('login');
             }catch(e){
                 showMessage(e.message);
             }
@@ -899,17 +942,52 @@
                     confirmPassword:confirmPassword
                 });
                 myName=data.username;
+                isGuest=false;
                 document.getElementById('registerPasswordInput').value='';
                 document.getElementById('registerConfirmPasswordInput').value='';
                 document.getElementById('currentPlayerName').textContent=
                     myName;
                 showMessage('註冊成功');
-                connectWebSocket();
+                connectWebSocket('login');
             }catch(e){
                 showMessage(e.message);
             }
         }
+        function startGuest(){
+            const name=document.getElementById('guestNameInput').value.trim();
+            if(name===''){
+                showMessage('請輸入玩家名稱');
+                return;
+            }
+            if(name.length>20){
+                showMessage('玩家名稱不能超過20個字');
+                return;
+            }
+            myName=name;
+            myRole=null;
+            isGuest=true;
+            showMessage('');
+            connectWebSocket('guest',name);
+        }
         async function logout(){
+            if(isGuest){
+                myName='';
+                myRole=null;
+                isGuest=false;
+                if(ws){
+                    ws.onclose=null;
+                    try{
+                        ws.close();
+                    }catch(e){
+                    }
+                    ws=null;
+                }
+                document.getElementById('currentPlayerName').textContent='';
+                document.getElementById('guestNameInput').value='';
+                showScreen('home');
+                showMessage('');
+                return;
+            }
             try{
                 await apiRequest('/api/logout',{});
             }catch(e){
@@ -918,6 +996,7 @@
             }
             myName='';
             myRole=null;
+            isGuest=false;
             if(ws){
                 ws.onclose=null;
                 try{
@@ -927,7 +1006,7 @@
                 ws=null;
             }
             document.getElementById('currentPlayerName').textContent='';
-            showScreen('login');
+            showScreen('home');
             showMessage('已登出');
         }
         document.getElementById('rulesButton').onclick=()=>{
@@ -941,7 +1020,7 @@
         };
         document.getElementById('enterGameButton').onclick=()=>{
             showMessage('');
-            showScreen('login');
+            showScreen('entry');
         };
         document.getElementById('backFromRulesButton').onclick=()=>{
             showMessage('');
@@ -950,6 +1029,34 @@
         document.getElementById('backFromSiteInfoButton').onclick=()=>{
             showMessage('');
             showScreen('home');
+        };
+        document.getElementById('loginChoiceButton').onclick=()=>{
+            showMessage('');
+            showScreen('login');
+        };
+        document.getElementById('registerChoiceButton').onclick=()=>{
+            showMessage('');
+            showScreen('register');
+        };
+        document.getElementById('guestChoiceButton').onclick=()=>{
+            showMessage('');
+            showScreen('guest');
+        };
+        document.getElementById('backFromEntryButton').onclick=()=>{
+            showMessage('');
+            showScreen('home');
+        };
+        document.getElementById('backFromLoginButton').onclick=()=>{
+            showMessage('');
+            showScreen('entry');
+        };
+        document.getElementById('backFromRegisterButton').onclick=()=>{
+            showMessage('');
+            showScreen('entry');
+        };
+        document.getElementById('backFromGuestButton').onclick=()=>{
+            showMessage('');
+            showScreen('entry');
         };
         document.getElementById('loginButton').onclick=()=>{
             login();
@@ -964,6 +1071,9 @@
         };
         document.getElementById('registerButton').onclick=()=>{
             register();
+        };
+        document.getElementById('guestStartButton').onclick=()=>{
+            startGuest();
         };
         document.getElementById('logoutButton').onclick=()=>{
             logout();
@@ -1107,7 +1217,13 @@
                 register();
             }
         });
+        document.getElementById('guestNameInput').addEventListener('keydown',event=>{
+            if(event.key==='Enter'){
+                startGuest();
+            }
+        });
         updateNumberDisplays();
+        updateMenuButton();
         checkLogin();
     </script>
 </body>

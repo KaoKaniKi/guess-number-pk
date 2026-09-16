@@ -38,6 +38,10 @@ const server=http.createServer(async(req,res)=>{
         await handleMe(req,res);
         return;
     }
+    if(req.method==='GET'&&req.url==='/api/myStats'){
+        await handleMyStats(req,res);
+        return;
+    }
     if(req.method==='GET'&&req.url==='/api/siteInfo'){
         await handleSiteInfo(req,res);
         return;
@@ -1033,6 +1037,48 @@ async function handleMe(req,res){
         sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
     }
 }
+async function handleMyStats(req,res){
+    try{
+        const user=await getSessionUser(req);
+        if(!user){
+            sendJson(res,401,{
+                ok:false,
+                message:'請先登入'
+            });
+            return;
+        }
+        const result=await pool.query(
+            `SELECT
+                COALESCE(wins,0)::int AS wins,
+                COALESCE(losses,0)::int AS losses,
+                COALESCE(draws,0)::int AS draws
+             FROM user_stats
+             WHERE user_id=$1`,
+            [user.id]
+        );
+        if(result.rowCount===0){
+            sendJson(res,200,{
+                ok:true,
+                username:user.username,
+                wins:0,
+                losses:0,
+                draws:0
+            });
+            return;
+        }
+        const row=result.rows[0];
+        sendJson(res,200,{
+            ok:true,
+            username:user.username,
+            wins:row.wins,
+            losses:row.losses,
+            draws:row.draws
+        });
+    }catch(e){
+        console.error('My stats error:',e);
+        sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
+    }
+}
 async function handleWebsiteVisit(req,res){
     const cookies=getCookies(req);
     let isNewVisit=false;
@@ -1060,7 +1106,7 @@ async function handleWebsiteVisit(req,res){
         const cookiesHeader=res.getHeader('Set-Cookie');
         res.writeHead(200,{
             'Content-Type':'text/html; charset=utf-8',
-            ...(cookiesHeader?{'Set-Cookie':cookiesHeader}:{})
+            ...(cookiesHeader?{'Set-Cookie':cookiesHeader}: {})
         });
         res.end(data);
     });

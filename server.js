@@ -1,3 +1,4 @@
+```js
 const MESSAGE_TIMEOUT_MS=6000;
 const SESSION_MAX_AGE_SECONDS=60*60*24*30;
 const http=require('http');
@@ -19,15 +20,7 @@ const pool=new Pool({
 const server=http.createServer(async(req,res)=>{
     let filePath=path.join(__dirname,'public','index.html');
     if(req.method==='GET'&&req.url==='/'){
-        fs.readFile(filePath,(err,data)=>{
-            if(err){
-                res.writeHead(500,{'Content-Type':'text/plain; charset=utf-8'});
-                res.end('Server error');
-                return;
-            }
-            res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
-            res.end(data);
-        });
+        await handleWebsiteVisit(req,res);
         return;
     }
     if(req.method==='POST'&&req.url==='/api/register'){
@@ -44,6 +37,10 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'&&req.url==='/api/me'){
         await handleMe(req,res);
+        return;
+    }
+    if(req.method==='GET'&&req.url==='/api/siteInfo'){
+        await handleSiteInfo(req,res);
         return;
     }
     res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'});
@@ -551,6 +548,9 @@ async function recordMatchResult(room){
                 [guest.ws.userId]
             );
         }
+        await client.query(
+            'UPDATE site_stats SET completed_games=completed_games+1 WHERE id=1'
+        );
         await client.query('COMMIT');
         room.statsRecorded=true;
         console.log(`Match result recorded: ${host.name} vs ${guest.name} (${result})`);
@@ -759,6 +759,19 @@ function setSessionCookie(res,token){
 }
 function clearSessionCookie(res){
     res.setHeader('Set-Cookie','guessNumberPkSession=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Secure');
+}
+function setVisitCookie(res,token){
+    const cookie=`guessNumberPkVisit=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Secure`;
+    const current=res.getHeader('Set-Cookie');
+    if(current){
+        if(Array.isArray(current)){
+            res.setHeader('Set-Cookie',[...current,cookie]);
+        }else{
+            res.setHeader('Set-Cookie',[current,cookie]);
+        }
+    }else{
+        res.setHeader('Set-Cookie',cookie);
+    }
 }
 function sendJson(res,status,data){
     res.writeHead(status,{
@@ -1002,6 +1015,66 @@ async function handleMe(req,res){
         });
     }catch(e){
         console.error('Session check error:',e);
+        sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
+    }
+}
+async function handleWebsiteVisit(req,res){
+    const cookies=getCookies(req);
+    let isNewVisit=false;
+    if(!cookies.guessNumberPkVisit){
+        isNewVisit=true;
+    }
+    if(isNewVisit){
+        const visitToken=crypto.randomBytes(32).toString('hex');
+        setVisitCookie(res,visitToken);
+        try{
+            await pool.query(
+                'UPDATE site_stats SET visit_count=visit_count+1 WHERE id=1'
+            );
+        }catch(e){
+            console.error('Visit count error:',e);
+        }
+    }
+    const filePath=path.join(__dirname,'public','index.html');
+    fs.readFile(filePath,(err,data)=>{
+        if(err){
+            res.writeHead(500,{'Content-Type':'text/plain; charset=utf-8'});
+            res.end('Server error');
+            return;
+        }
+        const cookiesHeader=res.getHeader('Set-Cookie');
+        res.writeHead(200,{
+            'Content-Type':'text/html; charset=utf-8',
+            ...(cookiesHeader?{'Set-Cookie':cookiesHeader}:{})
+        });
+        res.end(data);
+    });
+}
+async function handleSiteInfo(req,res){
+    try{
+        const result=await pool.query(`
+            SELECT
+                s.visit_count::int AS visit_count,
+                s.completed_games::int AS completed_games,
+                COUNT(u.id)::int AS account_count
+            FROM site_stats s
+            LEFT JOIN users u ON TRUE
+            WHERE s.id=1
+            GROUP BY s.visit_count,s.completed_games
+        `);
+        if(result.rowCount===0){
+            sendJson(res,500,{ok:false,message:'網站資料不存在'});
+            return;
+        }
+        const row=result.rows[0];
+        sendJson(res,200,{
+            ok:true,
+            visitCount:row.visit_count,
+            accountCount:row.account_count,
+            gameCount:row.completed_games
+        });
+    }catch(e){
+        console.error('Site info error:',e);
         sendJson(res,500,{ok:false,message:'伺服器發生錯誤'});
     }
 }
@@ -1478,6 +1551,18 @@ async function initDatabase(){
             draws INTEGER NOT NULL DEFAULT 0
         )
     `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS site_stats(
+            id INTEGER PRIMARY KEY,
+            visit_count INTEGER NOT NULL DEFAULT 0,
+            completed_games INTEGER NOT NULL DEFAULT 0
+        )
+    `);
+    await pool.query(`
+        INSERT INTO site_stats(id,visit_count,completed_games)
+        VALUES(1,0,0)
+        ON CONFLICT(id) DO NOTHING
+    `);
     await pool.query(
         'CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id)'
     );
@@ -1502,3 +1587,4 @@ process.on('SIGTERM',async()=>{
         process.exit(0);
     }
 });
+```
